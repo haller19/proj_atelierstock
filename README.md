@@ -1,16 +1,25 @@
-# React + Vite
+# Atelier Stock
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+アクセサリー作家向けの部品・完成品在庫管理Webアプリです。
 
-Currently, two official plugins are available:
+## 機能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **ダッシュボード** — 今月の売上・利益・在庫アラートをひと目で確認
+- **部品在庫** — 仕入れ履歴・平均単価・在庫数の管理（カテゴリ・名前で絞り込み）
+- **完成品** — レシピ（原材料）に基づく原価自動計算、手元在庫・委託在庫の追跡
+- **仕入れ／廃棄** — 仕入れ記録の追加・廃棄記録の管理
+- **売上** — 直販（Minne / Creema / BASE / 実店舗）の売上記録と利益率表示
+- **委託管理** — 委託先ごとの納品・返品・委託売上・廃棄ロスの管理
 
-## React Compiler
+## 技術スタック
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- [React](https://react.dev/) + [Vite](https://vite.dev/)
+- CSSはコンポーネント内インラインスタイル（外部CSSファイルなし）
+- フォント：[DM Serif Display](https://fonts.google.com/specimen/DM+Serif+Display) / [Zen Kaku Gothic New](https://fonts.google.com/specimen/Zen+Kaku+Gothic+New)
 
-## Expanding the ESLint configuration
+## 開発環境の起動
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev
+```
