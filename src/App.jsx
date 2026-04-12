@@ -308,9 +308,11 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 
 /* 売上 */
 .sc-list{display:flex;gap:6px;margin-bottom:13px;overflow-x:auto;padding-bottom:2px;}
-.sc{flex-shrink:0;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:8px 11px;text-align:center;box-shadow:var(--sh);}
+.sc{flex-shrink:0;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:8px 11px;text-align:center;box-shadow:var(--sh);cursor:pointer;transition:border-color .15s;}
+.sc.active{border-color:var(--ac);border-left:3px solid var(--ac);background:var(--s2);}
 .sc-ch{font-size:10px;color:var(--t2);}
 .sc-v{font-size:14px;font-weight:700;}
+.sc-cnt{font-size:9px;color:var(--t2);margin-top:1px;}
 .sale-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:8px;box-shadow:var(--sh);overflow:hidden;}
 .sale-main{padding:11px 12px;display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;}
 .sale-name{font-size:13px;font-weight:700;}
@@ -475,6 +477,37 @@ export default function App() {
   const prodName = id => products.find(p=>p.id===id)?.name||`商品ID:${id}`;
   const cneeName = id => consignees.find(c=>c.id===id)?.name||`委託先ID:${id}`;
 
+  // 売上タブ：年度・チャネルフィルタ
+  const [selectedChannel, setSelectedChannel] = useState(null);
+
+  const salesYears = useMemo(()=>{
+    const ys = [...new Set(sales.map(s=>s.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
+    return ys.length ? ys : [String(new Date().getFullYear())];
+  },[sales]);
+
+  const [selectedYear, setSelectedYear] = useState(()=>{
+    const ys = [...new Set(sales.map(s=>s.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
+    return ys[0] || String(new Date().getFullYear());
+  });
+
+  const yearSales = useMemo(()=>
+    sales.filter(s=>s.date?.startsWith(selectedYear))
+  ,[sales,selectedYear]);
+
+  const byChannelAll = useMemo(()=>{
+    const names = [...new Set([...channels.map(c=>c.name),...yearSales.map(s=>s.channel).filter(Boolean)])];
+    return names.map(ch=>({
+      ch,
+      rev: yearSales.filter(s=>s.channel===ch).reduce((a,s)=>a+s.price*s.qty,0),
+      cnt: yearSales.filter(s=>s.channel===ch).length,
+    }));
+  },[channels,yearSales]);
+
+  const displayedSales = useMemo(()=>{
+    const sorted = [...yearSales].reverse();
+    return selectedChannel ? sorted.filter(s=>s.channel===selectedChannel) : sorted;
+  },[yearSales,selectedChannel]);
+
   // 売上モーダル プレビュー
   const salePreview = useMemo(()=>{
     if(!sf.productId||!sf.price||!sf.qty) return null;
@@ -553,10 +586,47 @@ export default function App() {
     const name = newChannelInput.name.trim();
     if(!name || channels.some(c=>c.name===name)) return;
     const color = CH_PALETTE[channels.length % CH_PALETTE.length];
-    setChannels(cs=>[...cs,{ id:Date.now(), name, feeRate:+newChannelInput.feeRate||0, color }]);
+    setChannels(cs=>[...cs,{ id:nextId(), name, feeRate:+newChannelInput.feeRate||0, color }]);
     setSf(f=>({...f, channel:name}));
     setNewChannelInput({ name:"", feeRate:"" });
     setShowNewChannel(false);
+  };
+
+  // ── チャネル編集 ────────────────────────────────────────────
+  const [editingChannelId,  setEditingChannelId]  = useState(null);
+  const [channelEditForm,   setChannelEditForm]   = useState({ name:"", feeRate:"", color:"" });
+
+  const openEditChannel = (ch)=>{
+    setChannelEditForm({ name:ch.name, feeRate:String(ch.feeRate), color:ch.color });
+    setEditingChannelId(ch.id);
+    setModal("channel_edit");
+  };
+
+  const saveChannel = ()=>{
+    const newName = channelEditForm.name.trim();
+    if(!newName) return;
+    const oldName = channels.find(c=>c.id===editingChannelId)?.name;
+    setChannels(cs=>cs.map(c=>c.id===editingChannelId
+      ? {...c, name:newName, feeRate:+channelEditForm.feeRate||0, color:channelEditForm.color}
+      : c));
+    // 売上レコードのチャネル名も一括更新
+    if(oldName && oldName!==newName)
+      setSales(ss=>ss.map(s=>s.channel===oldName ? {...s,channel:newName} : s));
+    setModal(null);
+    setEditingChannelId(null);
+  };
+
+  const deleteChannel = (id)=>{
+    const ch = channels.find(c=>c.id===id);
+    const cnt = sales.filter(s=>s.channel===ch?.name).length;
+    const msg = cnt>0
+      ? `「${ch?.name}」を削除しますか？\n紐づく売上記録 ${cnt} 件のチャネルは空白になります。`
+      : `「${ch?.name}」を削除しますか？`;
+    if(confirm(msg)) {
+      setChannels(cs=>cs.filter(c=>c.id!==id));
+      setModal(null);
+      setEditingChannelId(null);
+    }
   };
 
   const addSale = ()=>{
@@ -1159,16 +1229,39 @@ export default function App() {
         {/* ════ 売上 ════ */}
         {tab==="sales" && (
           <div className="sec">
-            <div className="sec-title">売上記録</div>
-            <div className="sc-list">
-              {byChannel.map(({ch,rev})=>(
-                <div className="sc" key={ch}>
-                  <div className="sc-ch">{ch}</div>
-                  <div className="sc-v" style={{color:chColMap[ch]}}>¥{fmt(rev)}</div>
-                </div>
-              ))}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div className="sec-title" style={{marginBottom:0}}>売上記録</div>
+              <select className="fs" style={{width:"auto",fontSize:13,padding:"5px 10px"}}
+                value={selectedYear}
+                onChange={e=>{setSelectedYear(e.target.value);setSelectedChannel(null);}}>
+                {salesYears.map(y=><option key={y} value={y}>{y}年</option>)}
+              </select>
             </div>
-            {[...sales].reverse().map(s=>{
+            <div className="sc-list">
+              <div className={`sc ${selectedChannel===null?"active":""}`} onClick={()=>setSelectedChannel(null)}>
+                <div className="sc-ch">すべて</div>
+                <div className="sc-v" style={{color:"var(--tx)"}}>¥{fmt(yearSales.reduce((a,s)=>a+s.price*s.qty,0))}</div>
+                <div className="sc-cnt">{yearSales.length}件</div>
+              </div>
+              {byChannelAll.map(({ch,rev,cnt})=>{
+                const chObj = channels.find(c=>c.name===ch);
+                return (
+                  <div className={`sc ${selectedChannel===ch?"active":""}`} key={ch} style={{position:"relative"}} onClick={()=>setSelectedChannel(prev=>prev===ch?null:ch)}>
+                    {chObj && <button style={{position:"absolute",top:4,right:4,background:"none",border:"none",cursor:"pointer",fontSize:11,color:"var(--t2)",padding:"2px 4px",lineHeight:1}} onClick={e=>{e.stopPropagation();openEditChannel(chObj);}}>✏</button>}
+                    <div className="sc-ch">{ch}</div>
+                    <div className="sc-v" style={{color:chColMap[ch]||"var(--tx)"}}>{rev>0?`¥${fmt(rev)}`:"—"}</div>
+                    <div className="sc-cnt">{cnt}件</div>
+                  </div>
+                );
+              })}
+            </div>
+            {selectedChannel && (
+              <div style={{fontSize:11,color:"var(--ac)",fontWeight:700,marginBottom:8}}>
+                {selectedChannel} · {displayedSales.length}件
+                <button style={{marginLeft:8,fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>setSelectedChannel(null)}>✕ 解除</button>
+              </div>
+            )}
+            {displayedSales.map(s=>{
               const calc  = calcSaleProfit(s,productCostMap,chFeeMap);
               const isOpen= open[`s${s.id}`];
               return (
@@ -1662,6 +1755,28 @@ export default function App() {
               <div className="div"/>
               <button className="btn-p" onClick={addRecipe}>レシピを登録</button>
               <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+            </div>
+          </div>
+        )}
+
+        {modal==="channel_edit" && (
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+            <div className="modal">
+              <div className="modal-title">チャネルを編集</div>
+              <div className="fr"><label className="fl">チャネル名 *</label><input className="fi" value={channelEditForm.name} onChange={e=>setChannelEditForm(f=>({...f,name:e.target.value}))}/></div>
+              <div className="fr"><label className="fl">手数料率（%）</label><input className="fi" type="number" step="0.1" value={channelEditForm.feeRate} onChange={e=>setChannelEditForm(f=>({...f,feeRate:e.target.value}))}/></div>
+              <div className="fr" style={{flexDirection:"column",gap:6}}>
+                <label className="fl">カラー</label>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {CH_PALETTE.map(col=>(
+                    <button key={col} onClick={()=>setChannelEditForm(f=>({...f,color:col}))}
+                      style={{width:26,height:26,borderRadius:"50%",background:col,border:channelEditForm.color===col?"3px solid var(--tx)":"2px solid transparent",cursor:"pointer",padding:0}}/>
+                  ))}
+                </div>
+              </div>
+              <button className="btn" style={{marginTop:12}} onClick={saveChannel}>保存</button>
+              <div className="div"/>
+              <button className="btn btn-d" onClick={()=>deleteChannel(editingChannelId)}>このチャネルを削除</button>
             </div>
           </div>
         )}
