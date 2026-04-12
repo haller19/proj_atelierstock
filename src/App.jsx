@@ -553,7 +553,7 @@ export default function App() {
 
         <div className="header">
           <div className="h-logo">✦ Atelier Stock</div>
-          <div className="h-sub">アクセサリー部品 管理システム</div>
+          <div className="h-sub">部品 管理システム</div>
         </div>
 
         {/* ════ DASHBOARD ════ */}
