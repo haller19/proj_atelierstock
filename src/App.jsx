@@ -736,19 +736,52 @@ export default function App() {
       closeConsignModal();
     }
   };
+  const [editingRecipeId, setEditingRecipeId] = useState(null);
+
+  const closeRecipeModal = ()=>{
+    setModal(null);
+    setEditingRecipeId(null);
+    setRf({name:"",desc:"",shippingCost:"",laborCost:"",ingredients:[{partId:"",qty:""}]});
+  };
+
+  const openEditRecipe = (pr)=>{
+    setRf({
+      name: pr.name,
+      desc: pr.desc||"",
+      shippingCost: String(pr.shippingCost||""),
+      laborCost: String(pr.laborCost||""),
+      ingredients: pr.ingredients.map(i=>({partId:String(i.partId),qty:String(i.qty)})),
+    });
+    setEditingRecipeId(pr.id);
+    setModal("recipe");
+  };
+
   const addRecipe = ()=>{
     if(!rf.name||rf.ingredients.some(i=>!i.partId||!i.qty)) return;
-    const newProd = {
-      id: nextId(),
+    const data = {
       name: rf.name,
       desc: rf.desc,
       ingredients: rf.ingredients.map(i=>({partId:+i.partId,qty:+i.qty})),
       shippingCost: +rf.shippingCost||0,
       laborCost: +rf.laborCost||0,
     };
-    setProducts(p=>[...p,newProd]);
-    setRf({name:"",desc:"",shippingCost:"",laborCost:"",ingredients:[{partId:"",qty:""}]});
-    setModal(null);
+    if(editingRecipeId) {
+      setProducts(ps=>ps.map(p=>p.id===editingRecipeId ? {...p,...data} : p));
+    } else {
+      setProducts(p=>[...p,{id:nextId(),...data}]);
+    }
+    closeRecipeModal();
+  };
+
+  const deleteRecipe = (id)=>{
+    const linked = made.filter(m=>m.productId===id).length;
+    const msg = linked>0
+      ? `このレシピを削除しますか？\n紐づく制作記録 ${linked} 件があります。`
+      : "このレシピを削除しますか？";
+    if(confirm(msg)){
+      setProducts(ps=>ps.filter(p=>p.id!==id));
+      closeRecipeModal();
+    }
   };
 
   // ── 部品カテゴリ（動的・重複排除） ────────────────────────────
@@ -1025,6 +1058,7 @@ export default function App() {
                       <div className="cost-row"><span>人件費</span><span>¥{fmt(cost.laborCost)}</span></div>
                       <div className="cost-div"/>
                       <div className="cost-total-row"><span>原価合計</span><span>¥{fmt(cost.total)}</span></div>
+                      <button style={{marginTop:10,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditRecipe(pr)}>✏ レシピを編集</button>
                     </div>
                   )}
                 </div>
@@ -1252,24 +1286,24 @@ export default function App() {
                 <div className="sc-v" style={{color:"var(--tx)"}}>¥{fmt(yearSales.reduce((a,s)=>a+s.price*s.qty,0))}</div>
                 <div className="sc-cnt">{yearSales.length}件</div>
               </div>
-              {byChannelAll.map(({ch,rev,cnt})=>{
-                const chObj = channels.find(c=>c.name===ch);
-                return (
-                  <div className={`sc ${selectedChannel===ch?"active":""}`} key={ch} style={{position:"relative"}} onClick={()=>setSelectedChannel(prev=>prev===ch?null:ch)}>
-                    {chObj && <button style={{position:"absolute",top:4,right:4,background:"none",border:"none",cursor:"pointer",fontSize:11,color:"var(--t2)",padding:"2px 4px",lineHeight:1}} onClick={e=>{e.stopPropagation();openEditChannel(chObj);}}>✏</button>}
-                    <div className="sc-ch">{ch}</div>
-                    <div className="sc-v" style={{color:chColMap[ch]||"var(--tx)"}}>{rev>0?`¥${fmt(rev)}`:"—"}</div>
-                    <div className="sc-cnt">{cnt}件</div>
-                  </div>
-                );
-              })}
+              {byChannelAll.map(({ch,rev,cnt})=>(
+                <div className={`sc ${selectedChannel===ch?"active":""}`} key={ch} onClick={()=>setSelectedChannel(prev=>prev===ch?null:ch)}>
+                  <div className="sc-ch">{ch}</div>
+                  <div className="sc-v" style={{color:chColMap[ch]||"var(--tx)"}}>{rev>0?`¥${fmt(rev)}`:"—"}</div>
+                  <div className="sc-cnt">{cnt}件</div>
+                </div>
+              ))}
             </div>
-            {selectedChannel && (
-              <div style={{fontSize:11,color:"var(--ac)",fontWeight:700,marginBottom:8}}>
-                {selectedChannel} · {displayedSales.length}件
-                <button style={{marginLeft:8,fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>setSelectedChannel(null)}>✕ 解除</button>
-              </div>
-            )}
+            {selectedChannel && (()=>{
+              const chObj = channels.find(c=>c.name===selectedChannel);
+              return (
+                <div style={{fontSize:11,color:"var(--ac)",fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
+                  <span>{selectedChannel} · {displayedSales.length}件</span>
+                  {chObj && <button style={{fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>openEditChannel(chObj)}>✏ 編集</button>}
+                  <button style={{fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>setSelectedChannel(null)}>✕ 解除</button>
+                </div>
+              );
+            })()}
             {displayedSales.map(s=>{
               const calc  = calcSaleProfit(s,productCostMap,chFeeMap);
               const isOpen= open[`s${s.id}`];
@@ -1716,7 +1750,7 @@ export default function App() {
         {modal==="recipe" && (
           <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
             <div className="modal">
-              <div className="modal-title">完成品レシピを登録</div>
+              <div className="modal-title">{editingRecipeId ? "レシピを編集" : "完成品レシピを登録"}</div>
               <div className="fr"><label className="fl">商品名 *</label><input className="fi" placeholder="例: パールピアス" value={rf.name} onChange={e=>setRf(f=>({...f,name:e.target.value}))}/></div>
               <div className="fr"><label className="fl">説明・メモ</label><input className="fi" placeholder="例: 淡水パール × Cカン × ポスト" value={rf.desc} onChange={e=>setRf(f=>({...f,desc:e.target.value}))}/></div>
 
@@ -1766,8 +1800,12 @@ export default function App() {
                 <div className="fr"><label className="fl">人件費（円）</label><input className="fi" type="number" placeholder="150" value={rf.laborCost} onChange={e=>setRf(f=>({...f,laborCost:e.target.value}))}/></div>
               </div>
               <div className="div"/>
-              <button className="btn-p" onClick={addRecipe}>レシピを登録</button>
-              <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+              <button className="btn-p" onClick={addRecipe}>{editingRecipeId ? "保存する" : "レシピを登録"}</button>
+              <button className="btn-c" onClick={closeRecipeModal}>キャンセル</button>
+              {editingRecipeId && <>
+                <div className="div"/>
+                <button className="btn btn-d" onClick={()=>deleteRecipe(editingRecipeId)}>このレシピを削除</button>
+              </>}
             </div>
           </div>
         )}
