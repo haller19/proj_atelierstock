@@ -4,16 +4,16 @@ import { useState, useMemo } from "react";
 //  初期データ
 // ═══════════════════════════════════════════════════════════════
 const INIT_PARTS = [
-  { id:1,  cat:"金具",    name:"Cカン",        variant:"ゴールド / 8mm / 真鍮",  unit:"個" },
-  { id:2,  cat:"金具",    name:"Cカン",        variant:"シルバー / 8mm / 鉄",    unit:"個" },
-  { id:3,  cat:"金具",    name:"丸カン",       variant:"ゴールド / 6mm",         unit:"個" },
-  { id:4,  cat:"金具",    name:"ピアスポスト", variant:"シルバー / チタン",      unit:"ペア" },
-  { id:5,  cat:"チェーン",name:"ボールチェーン",variant:"ゴールド / 1.5mm",      unit:"m" },
-  { id:6,  cat:"チェーン",name:"アズキチェーン",variant:"シルバー / 2mm",        unit:"m" },
-  { id:7,  cat:"ビーズ",  name:"淡水パール",   variant:"オフホワイト / 6mm",     unit:"個" },
-  { id:8,  cat:"ビーズ",  name:"天然石",       variant:"ローズクォーツ / 8mm",   unit:"個" },
-  { id:9,  cat:"梱包材",  name:"OPP袋",        variant:"60×90mm",               unit:"枚" },
-  { id:10, cat:"梱包材",  name:"台紙",         variant:"ピアス用 白",            unit:"枚" },
+  { id:1,  cat:"金具",    name:"Cカン",        variant:"ゴールド / 8mm / 真鍮",  unit:"個", hinban:"C-001" },
+  { id:2,  cat:"金具",    name:"Cカン",        variant:"シルバー / 8mm / 鉄",    unit:"個", hinban:"C-002" },
+  { id:3,  cat:"金具",    name:"丸カン",       variant:"ゴールド / 6mm",         unit:"個", hinban:"M-001" },
+  { id:4,  cat:"金具",    name:"ピアスポスト", variant:"シルバー / チタン",      unit:"ペア", hinban:"P-001" },
+  { id:5,  cat:"チェーン",name:"ボールチェーン",variant:"ゴールド / 1.5mm",      unit:"m", hinban:"CH-001" },
+  { id:6,  cat:"チェーン",name:"アズキチェーン",variant:"シルバー / 2mm",        unit:"m", hinban:"CH-002" },
+  { id:7,  cat:"ビーズ",  name:"淡水パール",   variant:"オフホワイト / 6mm",     unit:"個", hinban:"B-001" },
+  { id:8,  cat:"ビーズ",  name:"天然石",       variant:"ローズクォーツ / 8mm",   unit:"個", hinban:"B-002" },
+  { id:9,  cat:"梱包材",  name:"OPP袋",        variant:"60×90mm",               unit:"枚", hinban:"PK-001" },
+  { id:10, cat:"梱包材",  name:"台紙",         variant:"ピアス用 白",            unit:"枚", hinban:"PK-002" },
 ];
 
 const INIT_PURCHASES = [
@@ -95,11 +95,19 @@ const INIT_SALES = [
 ];
 
 const PART_CATS = ["すべて","金具","チェーン","ビーズ","梱包材"];
-const CHANNELS  = ["Minne","Creema","BASE","実店舗"];
-const CH_FEE    = { Minne:10, Creema:10, BASE:6.6, 実店舗:0 };
-const CH_COL    = { Minne:"#e8847a", Creema:"#7ab5e8", BASE:"#8ae8a8", 実店舗:"#e8c87a" };
+const INIT_CHANNELS = [
+  { id:1, name:"Minne",  feeRate:10,  color:"#e8847a" },
+  { id:2, name:"Creema", feeRate:10,  color:"#7ab5e8" },
+  { id:3, name:"BASE",   feeRate:6.6, color:"#8ae8a8" },
+  { id:4, name:"実店舗", feeRate:0,   color:"#e8c87a" },
+];
+const CH_PALETTE = ["#e8847a","#7ab5e8","#8ae8a8","#e8c87a","#b87ae8","#7ae8d8","#e87ab5","#a8e87a"];
 const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
 const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
+
+// モジュールレベルの ID ジェネレーター（コンポーネント外 → purity ルール対象外）
+let _idSeed = Date.now();
+const nextId = () => ++_idSeed;
 const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss:"var(--low)", sale:"var(--ok)" };
 
 // ─── ユーティリティ ───────────────────────────────────────────
@@ -107,16 +115,18 @@ const fmt  = n => Math.round(Number(n)).toLocaleString("ja-JP");
 const fmtD = n => Number(n).toFixed(1);
 const pct  = (a,b) => b===0?0:Math.round((a/b)*100);
 
-function calcPartStock(partId, purchases, disposals) {
+function calcPartStock(partId, purchases, disposals, partUsages=[]) {
   const buys  = purchases.filter(p=>p.partId===partId);
   const disps = disposals.filter(d=>d.partId===partId);
+  const usages = partUsages.filter(u=>u.partId===partId);
   const totalQty = buys.reduce((s,p)=>s+p.qty,0);
   const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
   const dispQty  = disps.reduce((s,d)=>s+d.qty,0);
+  const usedQty  = usages.reduce((s,u)=>s+u.qty,0);
   const avgPrice = totalQty>0 ? totalAmt/totalQty : 0;
   const supMap   = new Map();
   buys.forEach(p=>supMap.set(p.supplier,p.unitPrice));
-  return { stock: totalQty-dispQty, avgPrice, supMap };
+  return { stock: totalQty-dispQty-usedQty, avgPrice, supMap };
 }
 
 function calcProductCost(product, partStockMap, parts) {
@@ -152,10 +162,10 @@ function calcConsigneeStock(productId, consigneeId, records) {
   return { deliver, sale, ret, loss, stock: deliver-sale-ret-loss };
 }
 
-function calcSaleProfit(sale, productCostMap) {
+function calcSaleProfit(sale, productCostMap, chFeeMap={}) {
   const cost = productCostMap[sale.productId]?.total||0;
   const revenue = sale.price*sale.qty;
-  const feeRate = CH_FEE[sale.channel]||0;
+  const feeRate = sale.feeRate!=null ? sale.feeRate : (chFeeMap[sale.channel]??0);
   const channelFee = Math.round(sale.price*(feeRate/100))*sale.qty;
   const shipping = (sale.shippingActual||0)*sale.qty;
   const profit = revenue - cost*sale.qty - channelFee - shipping;
@@ -339,6 +349,12 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 .ing-row .fs{flex:2;}
 .ing-row .fi{flex:1;}
 .ing-del{background:none;border:none;color:var(--low);font-size:16px;cursor:pointer;padding:0 2px;flex-shrink:0;}
+.part-chip-used{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:20px;background:var(--ac);color:#fff;border:none;font-family:inherit;font-size:12px;cursor:pointer;margin:3px;}
+.part-chip-unused{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border-radius:20px;background:none;color:var(--t2);border:1px solid var(--bd);font-family:inherit;font-size:12px;cursor:pointer;margin:3px;}
+.part-chips{display:flex;flex-wrap:wrap;margin-bottom:4px;}
+.made-sec{margin-top:14px;}
+.made-sec-ttl{font-size:11px;font-weight:700;color:var(--t2);margin-bottom:6px;display:flex;align-items:center;gap:6px;}
+.add-row-btn{background:none;border:1px dashed var(--bd);border-radius:8px;color:var(--t2);font-family:inherit;font-size:11px;cursor:pointer;padding:5px 10px;width:100%;margin-top:2px;}
 .add-ing-btn{font-size:11px;color:var(--ac);background:none;border:1px dashed var(--ac);border-radius:8px;padding:5px 10px;font-family:inherit;cursor:pointer;width:100%;margin-bottom:8px;}
 
 /* 損益プレビュー */
@@ -351,6 +367,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 
 .btn-p{width:100%;padding:11px;border-radius:9px;background:var(--ac);color:#fff;border:none;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;margin-top:6px;}
 .btn-c{width:100%;padding:9px;border-radius:9px;background:none;color:var(--t2);border:1px solid var(--bd);font-family:inherit;font-size:12px;cursor:pointer;margin-top:4px;}
+.btn-d{width:100%;padding:9px;border-radius:9px;background:none;color:var(--low);border:1px solid var(--low);font-family:inherit;font-size:12px;cursor:pointer;margin-top:8px;}
 .empty{text-align:center;color:var(--t2);font-size:12px;padding:28px 0;}
 `;
 
@@ -386,6 +403,8 @@ export default function App() {
   const [consignees,     setConsignees]     = useLS("as_consignees",      INIT_CONSIGNEES);
   const [consignRecords, setConsignRecords] = useLS("as_consign_records", INIT_CONSIGN_RECORDS);
   const [sales,          setSales]          = useLS("as_sales",           INIT_SALES);
+  const [channels,       setChannels]       = useLS("as_channels",        INIT_CHANNELS);
+  const [partUsages,     setPartUsages]     = useLS("as_part_usages",     []);
 
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
@@ -394,24 +413,32 @@ export default function App() {
   const [q,      setQ]      = useState("");
   const [modal,  setModal]  = useState(null);
   const [open,   setOpen]   = useState({});
+  const [selectedConsigneeId, setSelectedConsigneeId] = useState(null); // 委託先詳細ページ用
 
   // フォーム
-  const [pf,  setPf]  = useState({ partId:"",   date:"",   supplier:"",   qty:"",  unitPrice:"", note:"" });
+  const [pf,  setPf]  = useState({ partId:"",   date:"",   supplier:"",   qty:"",  totalPrice:"", note:"" });
   const [df,  setDf]  = useState({ partId:"",   date:"",   qty:"",        reason:"" });
+  const [editingPurchaseId,  setEditingPurchaseId]  = useState(null);
+  const [editingDisposalId,  setEditingDisposalId]  = useState(null);
   const [sf,  setSf]  = useState({ productId:"", date:"",  channel:"Minne", qty:"1", price:"", shippingActual:"", memo:"" });
-  const [mf,  setMf]  = useState({ productId:"", date:"",  qty:"1",       note:"" });
+  const MF_INIT = { productId:"", date:"", qty:"1", note:"", checkedParts:{}, extraParts:[], lossParts:[] };
+  const [mf,  setMf]  = useState(MF_INIT);
   const [cf,  setCf]  = useState({ productId:"", consigneeId:"", date:"", type:"deliver", qty:"1", salePrice:"", feeRate:"30", memo:"" });
   // レシピ登録フォーム
   const [rf, setRf]   = useState({ name:"", desc:"", shippingCost:"", laborCost:"", ingredients:[{partId:"",qty:""}] });
 
   const tog = key => setOpen(p=>({...p,[key]:!p[key]}));
 
+  // ── チャネル derived ──────────────────────────────────────────
+  const chFeeMap = useMemo(()=>Object.fromEntries(channels.map(c=>[c.name,c.feeRate])),[channels]);
+  const chColMap = useMemo(()=>Object.fromEntries(channels.map(c=>[c.name,c.color])),[channels]);
+
   // ── 計算 ──────────────────────────────────────────────────────
   const partStockMap = useMemo(()=>{
     const m={};
-    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals); });
+    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages); });
     return m;
-  },[parts,purchases,disposals]);
+  },[parts,purchases,disposals,partUsages]);
 
   const productCostMap = useMemo(()=>{
     const m={};
@@ -440,8 +467,8 @@ export default function App() {
   const THIS_MONTH = "2025-04";
   const ms = sales.filter(s=>s.date.startsWith(THIS_MONTH));
   const totalRev    = ms.reduce((a,s)=>a+s.price*s.qty,0);
-  const totalProfit = ms.reduce((a,s)=>a+calcSaleProfit(s,productCostMap).profit,0);
-  const byChannel   = CHANNELS.map(ch=>({ ch, rev:ms.filter(s=>s.channel===ch).reduce((a,s)=>a+s.price*s.qty,0) }));
+  const totalProfit = ms.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap).profit,0);
+  const byChannel   = channels.map(ch=>({ ch:ch.name, rev:ms.filter(s=>s.channel===ch.name).reduce((a,s)=>a+s.price*s.qty,0) }));
   const maxRev      = Math.max(...byChannel.map(b=>b.rev),1);
 
   const prodName = id => products.find(p=>p.id===id)?.name||`商品ID:${id}`;
@@ -452,42 +479,166 @@ export default function App() {
     if(!sf.productId||!sf.price||!sf.qty) return null;
     const cost = productCostMap[+sf.productId]?.total||0;
     const rev  = +sf.price * +sf.qty;
-    const fee  = Math.round(+sf.price*(( CH_FEE[sf.channel]||0)/100))*(+sf.qty);
+    const feeRate = chFeeMap[sf.channel]??0;
+    const fee  = Math.round(+sf.price*(feeRate/100))*(+sf.qty);
     const ship = (+sf.shippingActual||0)*(+sf.qty);
     const profit = rev - cost*(+sf.qty) - fee - ship;
-    return { rev, cost:cost*(+sf.qty), fee, ship, profit, feeRate:CH_FEE[sf.channel]||0 };
-  },[sf,productCostMap]);
+    return { rev, cost:cost*(+sf.qty), fee, ship, profit, feeRate };
+  },[sf,productCostMap,chFeeMap]);
 
   // ── 追加ハンドラ ──────────────────────────────────────────────
-  const addPurchase = ()=>{
-    if(!pf.partId||!pf.date||!pf.qty||!pf.unitPrice) return;
-    setPurchases(p=>[...p,{id:Date.now(),partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty:+pf.qty,unitPrice:+pf.unitPrice,note:pf.note}]);
-    setPf({partId:"",date:"",supplier:"",qty:"",unitPrice:"",note:""});
+  const closePurchaseModal = ()=>{
     setModal(null);
+    setEditingPurchaseId(null);
+    setShowNewSupplier(false);
+    setPf({partId:"",date:"",supplier:"",qty:"",totalPrice:"",note:""});
   };
-  const addDisposal = ()=>{
-    if(!df.partId||!df.date||!df.qty) return;
-    setDisposals(p=>[...p,{id:Date.now(),partId:+df.partId,date:df.date,qty:+df.qty,reason:df.reason}]);
+  const openEditPurchase = (pu)=>{
+    const totalPrice = Math.round(pu.qty * pu.unitPrice * 1.1);
+    setPf({ partId:String(pu.partId), date:pu.date, supplier:pu.supplier, qty:String(pu.qty), totalPrice:String(totalPrice), note:pu.note });
+    setEditingPurchaseId(pu.id);
+    setShowNewSupplier(false);
+    setModal("purchase");
+  };
+  const savePurchase = ()=>{
+    if(!pf.partId||!pf.date||!pf.qty||!pf.totalPrice) return;
+    const qty = +pf.qty;
+    const totalPrice = +pf.totalPrice;
+    const unitPrice = Math.round(totalPrice / qty / 1.1 * 100) / 100;
+    if(editingPurchaseId) {
+      setPurchases(ps=>ps.map(pu=>pu.id===editingPurchaseId ? {...pu,partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note} : pu));
+    } else {
+      setPurchases(p=>[...p,{id:Date.now(),partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note}]);
+    }
+    closePurchaseModal();
+  };
+  const deletePurchase = (id)=>{
+    if(confirm("この仕入記録を削除しますか？")) {
+      setPurchases(p=>p.filter(pu=>pu.id!==id));
+      closePurchaseModal();
+    }
+  };
+
+  const closeDisposalModal = ()=>{
+    setModal(null);
+    setEditingDisposalId(null);
     setDf({partId:"",date:"",qty:"",reason:""});
-    setModal(null);
   };
+  const openEditDisposal = (d)=>{
+    setDf({ partId:String(d.partId), date:d.date, qty:String(d.qty), reason:d.reason });
+    setEditingDisposalId(d.id);
+    setModal("disposal");
+  };
+  const saveDisposal = ()=>{
+    if(!df.partId||!df.date||!df.qty) return;
+    if(editingDisposalId) {
+      setDisposals(ds=>ds.map(d=>d.id===editingDisposalId ? {...d,partId:+df.partId,date:df.date,qty:+df.qty,reason:df.reason} : d));
+    } else {
+      setDisposals(p=>[...p,{id:Date.now(),partId:+df.partId,date:df.date,qty:+df.qty,reason:df.reason}]);
+    }
+    closeDisposalModal();
+  };
+  const deleteDisposal = (id)=>{
+    if(confirm("この廃棄記録を削除しますか？")) {
+      setDisposals(d=>d.filter(di=>di.id!==id));
+      closeDisposalModal();
+    }
+  };
+  // ── チャネル追加 ──────────────────────────────────────────────
+  const [showNewChannel,  setShowNewChannel]  = useState(false);
+  const [newChannelInput, setNewChannelInput] = useState({ name:"", feeRate:"" });
+
+  const addChannel = ()=>{
+    const name = newChannelInput.name.trim();
+    if(!name || channels.some(c=>c.name===name)) return;
+    const color = CH_PALETTE[channels.length % CH_PALETTE.length];
+    setChannels(cs=>[...cs,{ id:Date.now(), name, feeRate:+newChannelInput.feeRate||0, color }]);
+    setSf(f=>({...f, channel:name}));
+    setNewChannelInput({ name:"", feeRate:"" });
+    setShowNewChannel(false);
+  };
+
   const addSale = ()=>{
     if(!sf.productId||!sf.date||!sf.price||!sf.qty) return;
     setSales(p=>[...p,{id:Date.now(),productId:+sf.productId,date:sf.date,channel:sf.channel,qty:+sf.qty,price:+sf.price,shippingActual:+sf.shippingActual||0,memo:sf.memo}]);
-    setSf({productId:"",date:"",channel:"Minne",qty:"1",price:"",shippingActual:"",memo:""});
+    setSf({productId:"",date:"",channel:channels[0]?.name||"",qty:"1",price:"",shippingActual:"",memo:""});
     setModal(null);
   };
   const addMade = ()=>{
     if(!mf.productId||!mf.date||!mf.qty) return;
-    setMade(p=>[...p,{id:Date.now(),productId:+mf.productId,date:mf.date,qty:+mf.qty,note:mf.note}]);
-    setMf({productId:"",date:"",qty:"1",note:""});
+    const madeId = Date.now();
+    setMade(p=>[...p,{id:madeId,productId:+mf.productId,date:mf.date,qty:+mf.qty,note:mf.note}]);
+    // 部品使用記録を生成
+    const usageRows = [];
+    const prod = products.find(p=>p.id===+mf.productId);
+    if(prod) {
+      prod.ingredients.forEach(ing=>{
+        if(mf.checkedParts[ing.partId]) {
+          usageRows.push({ id:Date.now()+Math.random(), madeId, partId:ing.partId, date:mf.date, qty:ing.qty*(+mf.qty), type:"recipe" });
+        }
+      });
+    }
+    mf.extraParts.forEach(ep=>{
+      if(ep.partId&&+ep.qty>0)
+        usageRows.push({ id:Date.now()+Math.random(), madeId, partId:+ep.partId, date:mf.date, qty:+ep.qty, type:"extra" });
+    });
+    mf.lossParts.forEach(lp=>{
+      if(lp.partId&&+lp.qty>0)
+        usageRows.push({ id:Date.now()+Math.random(), madeId, partId:+lp.partId, date:mf.date, qty:+lp.qty, type:"loss" });
+    });
+    if(usageRows.length>0) setPartUsages(u=>[...u,...usageRows]);
+    setMf(MF_INIT);
     setModal(null);
   };
-  const addConsign = ()=>{
-    if(!cf.productId||!cf.consigneeId||!cf.date||!cf.qty) return;
-    setConsignRecords(p=>[...p,{id:Date.now(),productId:+cf.productId,consigneeId:+cf.consigneeId,date:cf.date,type:cf.type,qty:+cf.qty,salePrice:+cf.salePrice||0,feeRate:+cf.feeRate||0,memo:cf.memo}]);
-    setCf({productId:"",consigneeId:"",date:"",type:"deliver",qty:"1",salePrice:"",feeRate:"30",memo:""});
+  const [editingConsignId, setEditingConsignId] = useState(null);
+
+  const closeConsignModal = ()=>{
     setModal(null);
+    setEditingConsignId(null);
+    setShowNewCnee(false);
+    setNewCneeInput({name:"",address:"",memo:""});
+    setCf({productId:"",consigneeId:"",date:"",type:"deliver",qty:"1",salePrice:"",feeRate:"30",memo:""});
+  };
+
+  const openEditConsign = (r)=>{
+    setCf({ productId:String(r.productId), consigneeId:String(r.consigneeId), date:r.date, type:r.type, qty:String(r.qty), salePrice:String(r.salePrice||""), feeRate:String(r.feeRate||""), memo:r.memo||"" });
+    setEditingConsignId(r.id);
+    setModal("consign");
+  };
+
+  const saveConsign = ()=>{
+    if(!cf.productId||!cf.consigneeId||!cf.date||!cf.qty) return;
+    const base = {productId:+cf.productId,consigneeId:+cf.consigneeId,date:cf.date,type:cf.type,qty:+cf.qty,salePrice:+cf.salePrice||0,feeRate:+cf.feeRate||0,memo:cf.memo};
+    const cnee = consignees.find(c=>c.id===+cf.consigneeId);
+    const isSale = cf.type==="sale";
+    const linkedSaleFields = {productId:+cf.productId,date:cf.date,channel:cnee?.name||`委託先ID:${cf.consigneeId}`,qty:+cf.qty,price:+cf.salePrice||0,feeRate:+cf.feeRate||0,shippingActual:0,memo:cf.memo};
+    if(editingConsignId) {
+      setConsignRecords(ps=>ps.map(r=>r.id===editingConsignId?{...r,...base}:r));
+      if(isSale) {
+        setSales(ss=>{
+          const e=ss.find(s=>s.consignRecordId===editingConsignId);
+          if(e) return ss.map(s=>s.consignRecordId===editingConsignId?{...s,...linkedSaleFields}:s);
+          return [...ss,{id:nextId(),...linkedSaleFields,consignRecordId:editingConsignId}];
+        });
+      } else {
+        setSales(ss=>ss.filter(s=>s.consignRecordId!==editingConsignId));
+      }
+    } else {
+      const newConsign = {id:nextId(),...base};
+      setConsignRecords(p=>[...p,newConsign]);
+      if(isSale) {
+        setSales(ss=>[...ss,{id:nextId(),...linkedSaleFields,consignRecordId:newConsign.id}]);
+      }
+    }
+    closeConsignModal();
+  };
+
+  const deleteConsign = (id)=>{
+    if(confirm("この委託記録を削除しますか？")) {
+      setConsignRecords(p=>p.filter(r=>r.id!==id));
+      setSales(ss=>ss.filter(s=>s.consignRecordId!==id));
+      closeConsignModal();
+    }
   };
   const addRecipe = ()=>{
     if(!rf.name||rf.ingredients.some(i=>!i.partId||!i.qty)) return;
@@ -511,19 +662,48 @@ export default function App() {
     return [...base, ...new Set(fromParts)];
   },[parts]);
 
-  // ── 部品マスタ追加 ────────────────────────────────────────────
-  const [partForm,    setPartForm]    = useState({ cat:"金具", name:"", variant:"", unit:"個" });
-  const [newCatInput, setNewCatInput] = useState("");   // カテゴリ新規入力欄
-  const [showNewCat,  setShowNewCat]  = useState(false);
+  const suppliers = useMemo(()=>{
+    const base = purchases.map(p=>p.supplier).filter(s=>s&&s.trim());
+    return [...new Set(base)].sort();
+  },[purchases]);
+
+  // ── 部品マスタ追加・編集 ────────────────────────────────────────────
+  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"" });
+  const [newCatInput,   setNewCatInput]   = useState("");   // カテゴリ新規入力欄
+  const [showNewCat,    setShowNewCat]    = useState(false);
+  const [editingPartId, setEditingPartId] = useState(null); // null=新規, id=編集中
+
+  // ── 仕入先入力管理 ────────────────────────────────────────────
+  const [showNewSupplier, setShowNewSupplier] = useState(false);
+
+  const openEditPart = (p) => {
+    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban });
+    setEditingPartId(p.id);
+    setShowNewCat(false);
+    setNewCatInput("");
+    setModal("part");
+  };
+
+  const closePartModal = () => {
+    setModal(null);
+    setEditingPartId(null);
+    setShowNewCat(false);
+    setNewCatInput("");
+  };
 
   const addPart = () => {
     const cat = showNewCat ? newCatInput.trim() : partForm.cat;
-    if(!partForm.name || !cat) return;
-    const newPart = { id: Date.now(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit };
-    setParts(p => [...p, newPart]);
-    setPartForm({ cat:"金具", name:"", variant:"", unit:"個" });
+    if(!partForm.name || !cat || !partForm.hinban) return;
+    if(editingPartId) {
+      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban } : p));
+    } else {
+      const newPart = { id: Date.now(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban };
+      setParts(p => [...p, newPart]);
+    }
+    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"" });
     setNewCatInput("");
     setShowNewCat(false);
+    setEditingPartId(null);
     setModal(null);
   };
 
@@ -596,7 +776,7 @@ export default function App() {
               {byChannel.map(({ch,rev})=>(
                 <div className="bar-row" key={ch}>
                   <div className="bar-lbl">{ch}</div>
-                  <div className="bar-tr"><div className="bar-f" style={{width:`${pct(rev,maxRev)}%`,background:CH_COL[ch]}}/></div>
+                  <div className="bar-tr"><div className="bar-f" style={{width:`${pct(rev,maxRev)}%`,background:chColMap[ch]||"var(--t2)"}}/></div>
                   <div className="bar-v">¥{fmt(rev)}</div>
                 </div>
               ))}
@@ -620,7 +800,7 @@ export default function App() {
               return (
                 <div className={`pc ${st}`} key={p.id}>
                   <div style={{flex:1}}>
-                    <div className="pn">{p.name}</div>
+                    <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
                     <div className="pv">{p.variant}</div>
                     <span className="pbadge">{p.cat}</span>
                     <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
@@ -754,17 +934,12 @@ export default function App() {
         )}
 
         {/* ════ 委託管理 ════ */}
-        {tab==="consign" && (
+        {tab==="consign" && !selectedConsigneeId && (
           <div className="sec">
-            <div className="sec-title">委託管理</div>
+            <div className="sec-title">委託先一覧</div>
             {consignees.length===0 && <div className="empty">委託先が登録されていません</div>}
             {consignees.map(cn=>{
-              const isOpen = open[`cn${cn.id}`];
-              // この委託先の全記録（新しい順）
-              const records = [...consignRecords]
-                .filter(r=>r.consigneeId===cn.id)
-                .sort((a,b)=>b.date.localeCompare(a.date));
-              // 商品ごとの現在庫サマリ
+              const records = consignRecords.filter(r=>r.consigneeId===cn.id);
               const activeProds = products.map(pr=>({
                 pr,
                 ...calcConsigneeStock(pr.id,cn.id,consignRecords),
@@ -772,84 +947,117 @@ export default function App() {
               const totalStock = activeProds.reduce((a,x)=>a+x.stock,0);
 
               return (
-                <div className="prod-stk-card" key={cn.id}>
-                  {/* 委託先ヘッダー */}
-                  <div className="prod-stk-header" onClick={()=>tog(`cn${cn.id}`)}>
+                <div className="prod-stk-card" style={{cursor:"pointer"}} key={cn.id} onClick={()=>setSelectedConsigneeId(cn.id)}>
+                  <div className="prod-stk-header">
                     <div>
                       <div className="prod-stk-name">📍 {cn.name}</div>
                       {cn.address && <div className="prod-stk-desc">{cn.address}</div>}
-                      {cn.memo    && <div className="prod-stk-desc" style={{color:"var(--ac)"}}>📝 {cn.memo}</div>}
+                      {cn.memo && <div className="prod-stk-desc" style={{color:"var(--ac)"}}>📝 {cn.memo}</div>}
                     </div>
                     <div className="prod-stk-right">
                       <div className="prod-stk-total">{totalStock}</div>
-                      <div className="prod-stk-lbl">委託在庫合計（点）</div>
-                      <div className="prod-stk-toggle">{isOpen?"▲ 閉じる":"▼ 詳細・履歴"}</div>
+                      <div className="prod-stk-lbl">委託在庫（点）</div>
+                      <div className="prod-stk-toggle">▶ 詳細</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ════ 委託先詳細ページ ════ */}
+        {tab==="consign" && selectedConsigneeId && (
+          <div className="sec">
+            {consignees.find(c=>c.id===selectedConsigneeId) && (()=>{
+              const cn = consignees.find(c=>c.id===selectedConsigneeId);
+              const records = [...consignRecords]
+                .filter(r=>r.consigneeId===cn.id)
+                .sort((a,b)=>b.date.localeCompare(a.date));
+              const activeProds = products.map(pr=>({
+                pr,
+                ...calcConsigneeStock(pr.id,cn.id,consignRecords),
+              })).filter(x=>x.deliver>0);
+              const totalStock = activeProds.reduce((a,x)=>a+x.stock,0);
+
+              return (
+                <>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+                    <button style={{background:"none",border:"none",fontSize:20,cursor:"pointer",padding:0}} onClick={()=>setSelectedConsigneeId(null)}>◀</button>
+                    <div style={{flex:1}}>
+                      <div className="sec-title" style={{marginBottom:0}}>📍 {cn.name}</div>
+                      {cn.address && <div className="prod-stk-desc">{cn.address}</div>}
+                      {cn.memo && <div className="prod-stk-desc" style={{color:"var(--ac)"}}>📝 {cn.memo}</div>}
                     </div>
                   </div>
 
-                  {isOpen && (
-                    <div className="prod-stk-body">
-                      {/* 商品ごとの在庫サマリ */}
-                      {activeProds.length>0 && (
-                        <>
-                          <div style={{fontSize:10,color:"var(--t2)",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",marginBottom:7}}>商品別 現在庫</div>
-                          {activeProds.map(({pr,deliver,sale,ret,loss,stock:cs})=>(
-                            <div key={pr.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 10px",marginBottom:6}}>
-                              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                                <span style={{fontSize:12,fontWeight:700}}>{pr.name}</span>
-                                <span style={{fontFamily:"'DM Serif Display',serif",fontSize:20}}>{cs}<span style={{fontSize:10,fontWeight:400,color:"var(--t2)",marginLeft:3}}>点</span></span>
-                              </div>
-                              <div style={{display:"flex",gap:12,marginTop:4,fontSize:10,color:"var(--t2)"}}>
-                                <span>納品 {deliver}</span>
-                                <span style={{color:"var(--ok)"}}>売上 −{sale}</span>
-                                {ret>0  && <span style={{color:"var(--warn)"}}>返品 −{ret}</span>}
-                                {loss>0 && <span style={{color:"var(--low)"}}>ロス −{loss}</span>}
-                              </div>
-                            </div>
-                          ))}
-                          <div className="stk-divider"/>
-                        </>
-                      )}
+                  {/* 在庫サマリ */}
+                  <div className="chart-card" style={{marginBottom:16}}>
+                    <div className="chart-ttl">現在庫（商品別）</div>
+                    <div style={{fontSize:11,color:"var(--t2)",marginBottom:10}}>合計 <strong style={{fontSize:13,color:"var(--ac)"}}>{totalStock}点</strong></div>
+                    {activeProds.length===0 ? (
+                      <div style={{fontSize:11,color:"var(--t2)",textAlign:"center",padding:"12px 0"}}>委託中の在庫がありません</div>
+                    ) : (
+                      activeProds.map(({pr,deliver,sale,ret,loss,stock:cs})=>(
+                        <div key={pr.id} style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"9px 11px",marginBottom:7}}>
+                          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+                            <span style={{fontSize:12,fontWeight:700}}>{pr.name}</span>
+                            <span style={{fontFamily:"'DM Serif Display',serif",fontSize:20}}>{cs}<span style={{fontSize:9,fontWeight:400,color:"var(--t2)",marginLeft:3}}>点</span></span>
+                          </div>
+                          <div style={{display:"flex",gap:10,fontSize:9,color:"var(--t2)"}}>
+                            <span>納品 <strong>{deliver}</strong></span>
+                            <span style={{color:"var(--ok)"}}>売上 −<strong>{sale}</strong></span>
+                            {ret>0 && <span style={{color:"var(--warn)"}}>返品 −<strong>{ret}</strong></span>}
+                            {loss>0 && <span style={{color:"var(--low)"}}>ロス −<strong>{loss}</strong></span>}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
 
-                      {/* 記録履歴 */}
-                      <div style={{fontSize:10,color:"var(--t2)",fontWeight:700,textTransform:"uppercase",letterSpacing:".05em",marginBottom:7,marginTop:4}}>記録履歴</div>
-                      {records.length===0 && <div className="empty" style={{padding:"12px 0"}}>記録がありません</div>}
-                      {records.map(r=>{
+                  {/* 入出庫履歴 */}
+                  <div className="chart-card">
+                    <div className="chart-ttl">入出庫履歴</div>
+                    {records.length===0 ? (
+                      <div style={{fontSize:11,color:"var(--t2)",textAlign:"center",padding:"12px 0"}}>記録がありません</div>
+                    ) : (
+                      records.map(r=>{
                         const pr = products.find(p=>p.id===r.productId);
                         const typeCol = CONSIGN_TYPE_COL[r.type]||"var(--t2)";
                         const typeLabel = CONSIGN_TYPE_LABEL[r.type]||r.type;
                         const isSale = r.type==="sale";
                         const isDeliver = r.type==="deliver";
                         return (
-                          <div key={r.id} style={{background:"var(--sf)",border:"1px solid var(--bd)",borderRadius:8,padding:"9px 10px",marginBottom:6}}>
+                          <div key={r.id} style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"9px 11px",marginBottom:6}}>
                             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
                               <div>
                                 <div style={{fontSize:12,fontWeight:700}}>{pr?.name||"—"}</div>
-                                <div style={{fontSize:10,color:"var(--t2)",marginTop:1}}>{r.date}</div>
+                                <div style={{fontSize:9,color:"var(--t2)",marginTop:2}}>{r.date}</div>
                               </div>
-                              <div style={{textAlign:"right"}}>
-                                <span style={{fontSize:10,fontWeight:700,color:typeCol,background:`${typeCol}18`,padding:"2px 8px",borderRadius:6}}>{typeLabel}</span>
-                                <div style={{fontSize:13,fontWeight:700,marginTop:3}}>
-                                  {r.type==="deliver"?"＋":r.type==="return"?"＋":"−"}{r.qty} 点
+                              <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                                <span style={{fontSize:9,fontWeight:700,color:typeCol,background:`${typeCol}18`,padding:"2px 7px",borderRadius:6}}>{typeLabel}</span>
+                                <div style={{fontSize:13,fontWeight:700}}>
+                                  {r.type==="deliver"?"＋":r.type==="return"?"＋":"−"}{r.qty}点
                                 </div>
+                                <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:11,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditConsign(r)}>✏ 編集</button>
                               </div>
                             </div>
                             {(isSale||isDeliver) && r.salePrice>0 && (
-                              <div style={{fontSize:10,color:"var(--t2)",marginTop:5,paddingTop:4,borderTop:"1px solid var(--bd)",display:"flex",gap:12}}>
+                              <div style={{fontSize:9,color:"var(--t2)",marginTop:5,paddingTop:4,borderTop:"1px solid var(--bd)",display:"flex",gap:10}}>
                                 <span>販売価格 ¥{fmt(r.salePrice)}</span>
                                 <span>手数料 {r.feeRate}%</span>
                                 {isSale && <span style={{color:"var(--ok)",fontWeight:700}}>入金 ¥{fmt(Math.round(r.salePrice*(1-r.feeRate/100))*r.qty)}</span>}
                               </div>
                             )}
-                            {r.memo && <div style={{fontSize:10,color:"var(--t2)",marginTop:4}}>📝 {r.memo}</div>}
+                            {r.memo && <div style={{fontSize:9,color:"var(--t2)",marginTop:4}}>📝 {r.memo}</div>}
                           </div>
                         );
-                      })}
-                    </div>
-                  )}
-                </div>
+                      })
+                    )}
+                  </div>
+                </>
               );
-            })}
+            })()}
           </div>
         )}
 
@@ -860,14 +1068,21 @@ export default function App() {
             <div className="sub-tabs">
               <button className={`stab ${subTab==="purchase"?"on":""}`} onClick={()=>setSubTab("purchase")}>仕入（{purchases.length}）</button>
               <button className={`stab ${subTab==="disposal"?"on":""}`} onClick={()=>setSubTab("disposal")}>廃棄（{disposals.length}）</button>
+              <button className={`stab ${subTab==="part"?"on":""}`} onClick={()=>setSubTab("part")}>部品マスタ（{parts.length}）</button>
             </div>
             {subTab==="purchase" && [...purchases].reverse().map(pu=>{
               const p=parts.find(p=>p.id===pu.partId);
+              const unitPriceWithTax = pu.unitPrice * 1.1; // 税込単価
+              const totalPrice = pu.qty * pu.unitPrice * 1.1; // 実購入額（税込み）
               return (
                 <div className="rc" key={pu.id}>
                   <div className="rc-top">
                     <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {pu.date} · 📦{pu.supplier}</div></div>
-                    <div><div className="rc-amt">¥{fmt(pu.unitPrice)}/{p?.unit}</div><div className="rc-qty">×{pu.qty} = ¥{fmt(pu.qty*pu.unitPrice)}</div></div>
+                    <div>
+                      <div className="rc-amt">¥{fmtD(unitPriceWithTax)}/{p?.unit}（税込）</div>
+                      <div className="rc-qty">×{pu.qty} = ¥{fmt(totalPrice)}</div>
+                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",marginTop:4}} onClick={()=>openEditPurchase(pu)}>✏ 編集</button>
+                    </div>
                   </div>
                   {pu.note&&<div className="rc-note">📝 {pu.note}</div>}
                 </div>
@@ -882,12 +1097,33 @@ export default function App() {
                     <div className="dc" key={d.id}>
                       <div className="rc-top">
                         <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {d.date}</div></div>
-                        <div className="rc-amt" style={{color:"var(--low)"}}>−{d.qty}{p?.unit}</div>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                          <div className="rc-amt" style={{color:"var(--low)"}}>−{d.qty}{p?.unit}</div>
+                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditDisposal(d)}>✏ 編集</button>
+                        </div>
                       </div>
                       {d.reason&&<div className="dc-reason">理由: {d.reason}</div>}
                     </div>
                   );
                 })}
+              </>
+            )}
+            {subTab==="part" && (
+              <>
+                {parts.length===0 && <div className="empty">部品が登録されていません</div>}
+                {parts.map(p=>(
+                  <div className="pc" key={p.id} style={{cursor:"default"}}>
+                    <div style={{flex:1}}>
+                      <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
+                      <div className="pv">{p.variant}</div>
+                      <span className="pbadge">{p.cat}</span>
+                    </div>
+                    <div className="psb" style={{alignItems:"flex-end",gap:6}}>
+                      <div className="psu">{p.unit}</div>
+                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}>✏ 編集</button>
+                    </div>
+                  </div>
+                ))}
               </>
             )}
           </div>
@@ -901,18 +1137,18 @@ export default function App() {
               {byChannel.map(({ch,rev})=>(
                 <div className="sc" key={ch}>
                   <div className="sc-ch">{ch}</div>
-                  <div className="sc-v" style={{color:CH_COL[ch]}}>¥{fmt(rev)}</div>
+                  <div className="sc-v" style={{color:chColMap[ch]}}>¥{fmt(rev)}</div>
                 </div>
               ))}
             </div>
             {[...sales].reverse().map(s=>{
-              const calc  = calcSaleProfit(s,productCostMap);
+              const calc  = calcSaleProfit(s,productCostMap,chFeeMap);
               const isOpen= open[`s${s.id}`];
               return (
                 <div className="sale-card" key={s.id}>
                   <div className="sale-main" onClick={()=>tog(`s${s.id}`)}>
                     <div>
-                      <div className="sale-name"><span className="sale-dot" style={{background:CH_COL[s.channel]}}/>{prodName(s.productId)}</div>
+                      <div className="sale-name"><span className="sale-dot" style={{background:chColMap[s.channel]||"var(--t2)"}}/>{prodName(s.productId)}{s.consignRecordId&&<span style={{fontSize:9,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 5px",marginLeft:5,color:"var(--t2)"}}>📍委託</span>}</div>
                       <div className="sale-meta">{s.date} · {s.channel} · {s.qty}点</div>
                     </div>
                     <div>
@@ -958,18 +1194,23 @@ export default function App() {
 
         {/* FAB */}
         {tab==="parts"     && <button className="fab" onClick={()=>setModal("part")}>＋</button>}
-        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":"disposal")}>＋</button>}
+        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":subTab==="disposal"?"disposal":"part")}>＋</button>}
         {tab==="sales"     && <button className="fab" onClick={()=>setModal("sale")}>＋</button>}
         {tab==="prodstock" && <button className="fab" onClick={()=>subTab2==="recipe"?setModal("recipe"):setModal("made")}>＋</button>}
-        {tab==="consign"   && <button className="fab" onClick={()=>setModal("consign")}>＋</button>}
+        {tab==="consign"   && !selectedConsigneeId && <button className="fab" onClick={()=>setModal("consign")}>＋</button>}
+        {tab==="consign"   && selectedConsigneeId && <button className="fab" onClick={()=>{setCf(f=>({...f,consigneeId:String(selectedConsigneeId)}));setModal("consign");}}>＋</button>}
 
 
-        {/* ════ 部品マスタ登録モーダル ════ */}
+        {/* ════ 部品マスタ登録・編集モーダル ════ */}
         {modal==="part" && (
-          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&closePartModal()}>
             <div className="modal">
-              <div className="modal-title">部品を登録</div>
-              <div className="modal-sub">登録後、仕入記録から在庫を追加できます</div>
+              <div className="modal-title">{editingPartId ? "部品を編集" : "部品を登録"}</div>
+              {!editingPartId && <div className="modal-sub">登録後、仕入記録から在庫を追加できます</div>}
+              <div className="fr">
+                <label className="fl">品番 *</label>
+                <input className="fi" placeholder="例: C-001" value={partForm.hinban} onChange={e=>setPartForm(f=>({...f,hinban:e.target.value}))}/>
+              </div>
               <div className="fr">
                 <label className="fl">カテゴリ *</label>
                 {!showNewCat ? (
@@ -1003,17 +1244,17 @@ export default function App() {
                 </select>
               </div>
               <div className="div"/>
-              <button className="btn-p" onClick={addPart}>登録する</button>
-              <button className="btn-c" onClick={()=>{setModal(null);setShowNewCat(false);setNewCatInput("");}}>キャンセル</button>
+              <button className="btn-p" onClick={addPart}>{editingPartId ? "保存する" : "登録する"}</button>
+              <button className="btn-c" onClick={closePartModal}>キャンセル</button>
             </div>
           </div>
         )}
 
         {/* ════ 仕入モーダル ════ */}
         {modal==="purchase" && (
-          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&closePurchaseModal()}>
             <div className="modal">
-              <div className="modal-title">仕入れを記録</div>
+              <div className="modal-title">{editingPurchaseId ? "仕入れを編集" : "仕入れを記録"}</div>
               <div className="fr"><label className="fl">部品 *</label>
                 <select className="fs" value={pf.partId} onChange={e=>setPf(f=>({...f,partId:e.target.value}))}>
                   <option value="">選択してください</option>
@@ -1022,26 +1263,83 @@ export default function App() {
               </div>
               <div className="fr2">
                 <div className="fr"><label className="fl">仕入れ日 *</label><input className="fi" type="date" value={pf.date} onChange={e=>setPf(f=>({...f,date:e.target.value}))}/></div>
-                <div className="fr"><label className="fl">仕入れ先</label><input className="fi" placeholder="店舗名" value={pf.supplier} onChange={e=>setPf(f=>({...f,supplier:e.target.value}))}/></div>
+              </div>
+              <div className="fr">
+                <label className="fl">仕入れ先</label>
+                {!showNewSupplier ? (
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                    {suppliers.map(s=>(
+                      <button
+                        key={s}
+                        className={`chip ${pf.supplier===s?"on":""}`}
+                        onClick={()=>setPf(f=>({...f,supplier:s}))}
+                      >{s}</button>
+                    ))}
+                    <button
+                      className="chip"
+                      style={{borderStyle:"dashed",background:"transparent",color:"var(--ac)"}}
+                      onClick={()=>setShowNewSupplier(true)}
+                    >＋ 新規</button>
+                  </div>
+                ) : (
+                  <div style={{display:"flex",gap:6,marginBottom:8}}>
+                    <input className="fi" placeholder="新しい店舗名" value={pf.supplier} onChange={e=>setPf(f=>({...f,supplier:e.target.value}))} autoFocus style={{flex:1}}/>
+                    <button style={{flexShrink:0,padding:"7px 10px",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
+                      onClick={()=>{setShowNewSupplier(false);setPf(f=>({...f,supplier:""}));}}>戻る</button>
+                  </div>
+                )}
               </div>
               <div className="fr2">
                 <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="0" value={pf.qty} onChange={e=>setPf(f=>({...f,qty:e.target.value}))}/></div>
-                <div className="fr"><label className="fl">単価（円）*</label><input className="fi" type="number" placeholder="0" value={pf.unitPrice} onChange={e=>setPf(f=>({...f,unitPrice:e.target.value}))}/></div>
+                <div className="fr"><label className="fl">実購入額（税込・円）*</label><input className="fi" type="number" placeholder="0" value={pf.totalPrice} onChange={e=>setPf(f=>({...f,totalPrice:e.target.value}))}/></div>
               </div>
-              {pf.qty&&pf.unitPrice&&<div className="preview-box"><div className="prev-row"><span className="prev-lbl">合計</span><span className="prev-val">¥{fmt(pf.qty*pf.unitPrice)}</span></div></div>}
-              <div className="fr"><label className="fl">メモ</label><input className="fi" placeholder="例: まとめ買い割引" value={pf.note} onChange={e=>setPf(f=>({...f,note:e.target.value}))}/></div>
+              {pf.qty&&pf.totalPrice && (()=>{
+                const qty = +pf.qty;
+                const totalPrice = +pf.totalPrice;
+                const pricePerUnit = totalPrice / qty;
+                const tax = totalPrice - Math.round(totalPrice / 1.1);
+                const nontaxTotal = totalPrice - tax;
+                const unitPrice = Math.round(pricePerUnit / 1.1 * 100) / 100;
+                return (
+                  <div className="preview-box">
+                    <div className="prev-row">
+                      <span className="prev-lbl">1個あたり（税込）</span>
+                      <span className="prev-val">¥{fmtD(pricePerUnit)}</span>
+                    </div>
+                    <div className="prev-row">
+                      <span className="prev-lbl">1個あたり（税抜）</span>
+                      <span className="prev-val" style={{color:"var(--ac)"}}>¥{fmtD(unitPrice)}</span>
+                    </div>
+                    <div className="prev-div"/>
+                    <div className="prev-row">
+                      <span className="prev-lbl">合計（税抜）</span>
+                      <span className="prev-val">¥{fmt(nontaxTotal)}</span>
+                    </div>
+                    <div className="prev-row">
+                      <span className="prev-lbl">消費税（10%）</span>
+                      <span className="prev-val" style={{color:"var(--t2)"}}>¥{fmt(tax)}</span>
+                    </div>
+                    <div className="prev-total">
+                      <span>実購入額（税込）</span>
+                      <span style={{color:"var(--ok)"}}>¥{fmt(totalPrice)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+              <div className="fr"><label className="fl">メモ</label><input className="fi" placeholder="例: まとめ買い割引、納期注意" value={pf.note} onChange={e=>setPf(f=>({...f,note:e.target.value}))}/></div>
               <div className="div"/>
-              <button className="btn-p" onClick={addPurchase}>記録 → 在庫に自動加算</button>
-              <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+              <button className="btn-p" onClick={savePurchase}>{editingPurchaseId ? "保存する" : "記録 → 在庫に自動加算"}</button>
+              <button className="btn-c" onClick={closePurchaseModal}>キャンセル</button>
+              {editingPurchaseId && <button className="btn-d" onClick={()=>deletePurchase(editingPurchaseId)}>この仕入記録を削除する</button>}
             </div>
           </div>
         )}
 
         {/* ════ 廃棄モーダル ════ */}
         {modal==="disposal" && (
-          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&closeDisposalModal()}>
             <div className="modal">
-              <div className="modal-title">廃棄を記録</div>
+              <div className="modal-title">{editingDisposalId ? "廃棄記録を編集" : "廃棄を記録"}</div>
               <div className="fr"><label className="fl">部品 *</label>
                 <select className="fs" value={df.partId} onChange={e=>setDf(f=>({...f,partId:e.target.value}))}>
                   <option value="">選択してください</option>
@@ -1054,41 +1352,104 @@ export default function App() {
               </div>
               <div className="fr"><label className="fl">廃棄理由</label><input className="fi" placeholder="例: 変色・劣化" value={df.reason} onChange={e=>setDf(f=>({...f,reason:e.target.value}))}/></div>
               <div className="div"/>
-              <button className="btn-p" onClick={addDisposal}>記録 → 在庫から自動減算</button>
-              <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+              <button className="btn-p" onClick={saveDisposal}>{editingDisposalId ? "保存する" : "記録 → 在庫から自動減算"}</button>
+              <button className="btn-c" onClick={closeDisposalModal}>キャンセル</button>
+              {editingDisposalId && <button className="btn-d" onClick={()=>deleteDisposal(editingDisposalId)}>この廃棄記録を削除する</button>}
             </div>
           </div>
         )}
 
         {/* ════ 完成品制作モーダル ════ */}
-        {modal==="made" && (
+        {modal==="made" && (()=>{
+          const selProd = products.find(p=>p.id===+mf.productId);
+          const prodQty = +mf.qty||1;
+          return (
           <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
             <div className="modal">
               <div className="modal-title">完成品を制作</div>
               <div className="modal-sub">制作した分だけ完成品在庫が増えます</div>
               <div className="fr"><label className="fl">商品 *</label>
-                <select className="fs" value={mf.productId} onChange={e=>setMf(f=>({...f,productId:e.target.value}))}>
+                <select className="fs" value={mf.productId} onChange={e=>setMf(f=>({...f,productId:e.target.value,checkedParts:{},extraParts:[],lossParts:[]}))}>
                   <option value="">選択してください</option>
                   {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div className="fr2">
                 <div className="fr"><label className="fl">制作日 *</label><input className="fi" type="date" value={mf.date} onChange={e=>setMf(f=>({...f,date:e.target.value}))}/></div>
-                <div className="fr"><label className="fl">制作数 *</label><input className="fi" type="number" placeholder="1" value={mf.qty} onChange={e=>setMf(f=>({...f,qty:e.target.value}))}/></div>
+                <div className="fr"><label className="fl">制作数 *</label><input className="fi" type="number" min="1" placeholder="1" value={mf.qty} onChange={e=>setMf(f=>({...f,qty:e.target.value}))}/></div>
               </div>
-              <div className="fr"><label className="fl">メモ</label><input className="fi" placeholder="例: 追加制作、試作品など" value={mf.note} onChange={e=>setMf(f=>({...f,note:e.target.value}))}/></div>
+
+              {selProd && selProd.ingredients.length>0 && (
+                <div className="made-sec">
+                  <div className="made-sec-ttl">
+                    <span>レシピ部品 - 使用したものをタップ</span>
+                    <span style={{fontWeight:400,color:"var(--ac)"}}>使用済 = 在庫から差し引き</span>
+                  </div>
+                  <div className="part-chips">
+                    {selProd.ingredients.map(ing=>{
+                      const part = parts.find(p=>p.id===ing.partId);
+                      const used = !!mf.checkedParts[ing.partId];
+                      const totalQty = ing.qty * prodQty;
+                      return (
+                        <button
+                          key={ing.partId}
+                          className={used ? "part-chip-used" : "part-chip-unused"}
+                          onClick={()=>setMf(f=>({...f,checkedParts:{...f.checkedParts,[ing.partId]:!f.checkedParts[ing.partId]}}))}
+                        >
+                          {used ? "✓ " : ""}{part?.name||`ID:${ing.partId}`} × {totalQty}{part?.unit}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="made-sec">
+                <div className="made-sec-ttl">追加した部品（レシピ外・多く使った分）</div>
+                {mf.extraParts.map((ep,i)=>(
+                  <div className="ing-row" key={i}>
+                    <select className="fs" value={ep.partId} onChange={e=>setMf(f=>({...f,extraParts:f.extraParts.map((r,j)=>j===i?{...r,partId:e.target.value}:r)}))}>
+                      <option value="">部品を選択</option>
+                      {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{stock}{p.unit}</option>; })}
+                    </select>
+                    <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={ep.qty} onChange={e=>setMf(f=>({...f,extraParts:f.extraParts.map((r,j)=>j===i?{...r,qty:e.target.value}:r)}))}/>
+                    {ep.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+ep.partId)?.unit}</span>}
+                    <button className="ing-del" onClick={()=>setMf(f=>({...f,extraParts:f.extraParts.filter((_,j)=>j!==i)}))}>✕</button>
+                  </div>
+                ))}
+                <button className="add-row-btn" onClick={()=>setMf(f=>({...f,extraParts:[...f.extraParts,{partId:"",qty:""}]}))}>＋ 部品を追加</button>
+              </div>
+
+              <div className="made-sec">
+                <div className="made-sec-ttl">ロス部品（失敗・廃棄した材料）</div>
+                {mf.lossParts.map((lp,i)=>(
+                  <div className="ing-row" key={i}>
+                    <select className="fs" value={lp.partId} onChange={e=>setMf(f=>({...f,lossParts:f.lossParts.map((r,j)=>j===i?{...r,partId:e.target.value}:r)}))}>
+                      <option value="">部品を選択</option>
+                      {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{stock}{p.unit}</option>; })}
+                    </select>
+                    <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={lp.qty} onChange={e=>setMf(f=>({...f,lossParts:f.lossParts.map((r,j)=>j===i?{...r,qty:e.target.value}:r)}))}/>
+                    {lp.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+lp.partId)?.unit}</span>}
+                    <button className="ing-del" onClick={()=>setMf(f=>({...f,lossParts:f.lossParts.filter((_,j)=>j!==i)}))}>✕</button>
+                  </div>
+                ))}
+                <button className="add-row-btn" onClick={()=>setMf(f=>({...f,lossParts:[...f.lossParts,{partId:"",qty:""}]}))}>＋ 部品を追加</button>
+              </div>
+
+              <div className="fr" style={{marginTop:12}}><label className="fl">メモ</label><input className="fi" placeholder="例: 追加制作、試作品など" value={mf.note} onChange={e=>setMf(f=>({...f,note:e.target.value}))}/></div>
               <div className="div"/>
               <button className="btn-p" onClick={addMade}>記録 → 完成品在庫に加算</button>
-              <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+              <button className="btn-c" onClick={()=>{setMf(MF_INIT);setModal(null);}}>キャンセル</button>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* ════ 委託記録モーダル ════ */}
         {modal==="consign" && (
-          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&closeConsignModal()}>
             <div className="modal">
-              <div className="modal-title">委託記録を追加</div>
+              <div className="modal-title">{editingConsignId ? "委託記録を編集" : "委託記録を追加"}</div>
               <div className="fr"><label className="fl">商品 *</label>
                 <select className="fs" value={cf.productId} onChange={e=>setCf(f=>({...f,productId:e.target.value}))}>
                   <option value="">選択してください</option>
@@ -1146,8 +1507,9 @@ export default function App() {
               )}
               <div className="fr"><label className="fl">メモ</label><input className="fi" placeholder="例: 3月分報告、展示中破損" value={cf.memo} onChange={e=>setCf(f=>({...f,memo:e.target.value}))}/></div>
               <div className="div"/>
-              <button className="btn-p" onClick={addConsign}>記録する</button>
-              <button className="btn-c" onClick={()=>{setModal(null);setShowNewCnee(false);setNewCneeInput({name:"",address:"",memo:""});}}>キャンセル</button>
+              <button className="btn-p" onClick={saveConsign}>{editingConsignId ? "保存する" : "記録する"}</button>
+              <button className="btn-c" onClick={closeConsignModal}>キャンセル</button>
+              {editingConsignId && <button className="btn-d" onClick={()=>deleteConsign(editingConsignId)}>この記録を削除する</button>}
             </div>
           </div>
         )}
@@ -1172,9 +1534,26 @@ export default function App() {
               <div className="fr2">
                 <div className="fr"><label className="fl">販売日 *</label><input className="fi" type="date" value={sf.date} onChange={e=>setSf(f=>({...f,date:e.target.value}))}/></div>
                 <div className="fr"><label className="fl">チャネル</label>
-                  <select className="fs" value={sf.channel} onChange={e=>setSf(f=>({...f,channel:e.target.value}))}>
-                    {CHANNELS.map(ch=><option key={ch} value={ch}>{ch}（{CH_FEE[ch]}%）</option>)}
-                  </select>
+                  {!showNewChannel ? (
+                    <div style={{display:"flex",gap:6}}>
+                      <select className="fs" style={{flex:1}} value={sf.channel} onChange={e=>setSf(f=>({...f,channel:e.target.value}))}>
+                        {channels.map(c=><option key={c.id} value={c.name}>{c.name}（{c.feeRate}%）</option>)}
+                      </select>
+                      <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
+                        onClick={()=>setShowNewChannel(true)}>＋ 新規</button>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      <div style={{display:"flex",gap:6}}>
+                        <input className="fi" style={{flex:2}} placeholder="チャネル名（例: iichi）" value={newChannelInput.name} onChange={e=>setNewChannelInput(f=>({...f,name:e.target.value}))} autoFocus/>
+                        <input className="fi" style={{flex:1}} type="number" placeholder="手数料%" value={newChannelInput.feeRate} onChange={e=>setNewChannelInput(f=>({...f,feeRate:e.target.value}))}/>
+                      </div>
+                      <div style={{display:"flex",gap:6}}>
+                        <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"var(--ac)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={addChannel}>追加</button>
+                        <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"none",color:"var(--t2)",border:"1px solid var(--bd)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{setShowNewChannel(false);setNewChannelInput({name:"",feeRate:""});}}>戻る</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="fr3">

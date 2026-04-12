@@ -35,7 +35,7 @@ src/
 
 ```js
 // 部品マスタ
-{ id, cat, name, variant, unit }
+{ id, cat, name, variant, unit, hinban }
 
 // 仕入記録
 { id, partId, date, supplier, qty, unitPrice, note }
@@ -188,7 +188,11 @@ npm run preview  # ビルド結果をローカルで確認
 
 ## 今後の課題・未実装
 
+### 機能面
 - `MIN_STOCK` が初期10件分のハードコードになっている → 部品登録時に最低在庫数を設定できるようにしたい
-- 複数端末間のデータ同期（現状はLocalStorageのみ）→ 将来的にSupabase等へ移行を検討
 - データのエクスポート・バックアップ機能（JSON出力など）
 - 月次レポートの期間切り替え（現状は `THIS_MONTH` がハードコード）
+
+### インフラ面（将来）
+- **GitHub Actions → Xserver 自動デプロイ**：stock-roomと同じSSH+SCP方式で構築予定。Secretsは `XSERVER_HOST` / `XSERVER_USER` / `XSERVER_KEY_B64` / `XSERVER_REMOTE_PATH` を使う
+- **Supabase移行**：現状LocalStorageのみ。複数端末同期・データ永続化のためSupabase（PostgreSQL）へ移行予定。zaiko（在庫管理）での実績あり。移行時はLocalStorageの `useLS` フックをSupabase APIクライアントに差し替える形を想定
