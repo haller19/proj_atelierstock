@@ -27,6 +27,21 @@ src/
 
 ---
 
+## モジュールレベルのユーティリティ
+
+React Compiler の `react-hooks/purity` ルールにより、コンポーネント内で `Date.now()` などの不純な関数を直接呼び出すとエラーになる。以下のモジュールレベルのヘルパーを使うこと。
+
+```js
+let _idSeed = Date.now();
+const nextId = () => ++_idSeed;          // ID生成（Date.now()の代替）
+const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
+```
+
+- **ID生成**: コンポーネント内では必ず `nextId()` を使う。`Date.now()` をコンポーネント関数内で直接使わない。
+- **今日の日付**: `today()` を使う。フォームの日付初期値はすべて `today()` でデフォルト設定する。
+
+---
+
 ## データ設計
 
 すべてのデータは `App.jsx` 内の `INIT_*` 定数で初期値を定義し、`useLS`（LocalStorage フック）で永続化している。
@@ -35,13 +50,18 @@ src/
 
 ```js
 // 部品マスタ
-{ id, cat, name, variant, unit, hinban }
+{ id, cat, name, variant, unit, hinban, minStock }
+// minStock: 最低在庫数（未設定時は MIN_STOCK[id] || 10 にフォールバック）
 
 // 仕入記録
 { id, partId, date, supplier, qty, unitPrice, note }
 
 // 部品廃棄記録
 { id, partId, date, qty, reason }
+
+// 部品使用記録（完成品制作時に生成）
+{ id, madeId, partId, date, qty, type }
+// type: "recipe" | "extra" | "loss"
 
 // 完成品マスタ（レシピ）
 { id, name, desc, ingredients:[{partId, qty}], shippingCost, laborCost }
@@ -56,8 +76,13 @@ src/
 { id, productId, consigneeId, date, type, qty, salePrice, feeRate, memo }
 // type: "deliver" | "sale" | "return" | "loss"
 
-// 売上記録（直販）
-{ id, productId, date, channel, qty, price, shippingActual, memo }
+// 売上記録
+{ id, productId, date, channel, qty, price, shippingActual, memo, feeRate?, consignRecordId? }
+// feeRate: 委託連動売上の場合に設定（chFeeMap より優先）
+// consignRecordId: 委託記録から自動生成された売上に設定
+
+// チャネルマスタ（動的管理）
+{ id, name, feeRate, color }
 ```
 
 ### LocalStorageキー一覧
@@ -67,11 +92,13 @@ src/
 | `as_parts` | 部品マスタ |
 | `as_purchases` | 仕入記録 |
 | `as_disposals` | 部品廃棄記録 |
+| `as_part_usages` | 部品使用記録（制作時） |
 | `as_products` | 完成品マスタ |
 | `as_made` | 制作記録 |
 | `as_consignees` | 委託先マスタ |
 | `as_consign_records` | 委託記録 |
 | `as_sales` | 売上記録 |
+| `as_channels` | チャネルマスタ |
 
 ---
 
@@ -79,10 +106,16 @@ src/
 
 ### 部品在庫
 ```
-部品在庫 = 仕入累計 - 廃棄累計
+部品在庫 = 仕入累計 - 廃棄累計 - 制作時使用累計
 加重平均単価 = 仕入総額 / 仕入総数量
 ```
-→ `calcPartStock(partId, purchases, disposals)`
+→ `calcPartStock(partId, purchases, disposals, partUsages=[])`
+
+### 最低在庫数の解決
+```
+partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
+```
+→ `partMinStock(p)` ヘルパー関数。部品ごとの `minStock` → 初期ハードコード `MIN_STOCK` → デフォルト10 の順でフォールバック。
 
 ### 完成品在庫（手元）
 ```
@@ -105,8 +138,10 @@ src/
 ### 売上純利益
 ```
 純利益 = 売上合計 - 原価 - チャネル手数料 - 送料実費
+手数料率 = sale.feeRate ?? chFeeMap[sale.channel] ?? 0
 ```
-→ `calcSaleProfit(sale, productCostMap)`
+→ `calcSaleProfit(sale, productCostMap, chFeeMap={})`
+　`sale.feeRate` が設定されている場合は `chFeeMap` より優先（委託連動売上用）
 
 ---
 
@@ -114,12 +149,12 @@ src/
 
 | タブID | 表示名 | 内容 |
 |--------|--------|------|
-| `dashboard` | ダッシュ | 今月KPI・チャネル別売上棒グラフ・在庫アラート |
-| `parts` | 部品在庫 | 部品一覧（加重平均単価・仕入先・在庫ステータス）、＋で部品登録 |
-| `prodstock` | 完成品 | サブタブ「在庫」「レシピ・原価」、＋で制作記録またはレシピ登録 |
-| `records` | 仕入・廃棄 | サブタブ「仕入記録」「廃棄記録」、＋で各記録追加 |
-| `consign` | 委託 | 委託先ごとの記録履歴・商品別在庫サマリ、＋で委託記録追加 |
-| `sales` | 売上 | 直販売上一覧・損益明細、＋で売上登録 |
+| `dashboard` | HOME | 今月KPI（クリックで売上タブへ遷移）・チャネル別売上棒グラフ（クリックでフィルター遷移）・在庫アラート |
+| `parts` | 部品在庫 | 部品一覧（加重平均単価・仕入先・在庫ステータス）、編集・＋で部品登録 |
+| `prodstock` | 完成品 | サブタブ「在庫」「レシピ・原価」、レシピ編集・削除、＋で制作記録またはレシピ登録 |
+| `records` | 仕入・廃棄 | サブタブ「仕入記録」「廃棄記録」「部品マスタ」、各記録の編集・削除 |
+| `consign` | 委託 | 委託先ごとの記録履歴・商品別在庫サマリ、委託記録の編集・削除、売上計上ボタン |
+| `sales` | 売上 | 年度セレクト＋チャネルフィルター、売上記録の編集・削除、チャネルの編集・削除 |
 
 ---
 
@@ -149,21 +184,29 @@ src/
 ### UIパターン
 
 - カードをタップ → 詳細展開（`open` state で管理、キー: `ps{id}` `rc{id}` `s{id}` `cn{id}`）
+- 展開エリア内に編集ボタンを配置（仕入・廃棄・売上・レシピ）
 - モーダルはボトムシート形式（`animation: slideUp`）
 - FAB（右下固定ボタン）でデータ追加
 - 在庫ステータス: `low`（要発注）/ `warn`（少なめ）/ `ok`（良好）をカード左ボーダー色で表現
+- 削除ボタンは `.btn-d` クラス（赤系）、編集モーダルの下部に配置
 
 ---
 
 ## 定数・設定
 
 ```js
-// チャネル手数料率（%）
-CH_FEE = { Minne:10, Creema:10, BASE:6.6, 実店舗:0 }
+// チャネル初期値（as_channels に保存、動的に追加・編集・削除可能）
+INIT_CHANNELS = [
+  { id:1, name:"Minne",  feeRate:10,  color:"#e8847a" },
+  { id:2, name:"Creema", feeRate:10,  color:"#7ab5e8" },
+  { id:3, name:"BASE",   feeRate:6.6, color:"#8ae8a8" },
+  { id:4, name:"実店舗", feeRate:0,   color:"#e8c87a" },
+]
+CH_PALETTE = ["#e8847a","#7ab5e8",...]  // チャネル追加時の自動カラー割り当て
 
-// 部品の最低在庫数（アラートライン）
+// 部品の最低在庫数（初期10件分のフォールバック用ハードコード）
+// 新規登録部品は part.minStock フィールドで個別管理
 MIN_STOCK = { 1:50, 2:50, 3:100, 4:30, 5:5, 6:10, 7:80, 8:20, 9:100, 10:50 }
-// ※ 新規登録部品は MIN_STOCK に含まれないため、デフォルト10で処理される
 ```
 
 ---
@@ -189,10 +232,10 @@ npm run preview  # ビルド結果をローカルで確認
 ## 今後の課題・未実装
 
 ### 機能面
-- `MIN_STOCK` が初期10件分のハードコードになっている → 部品登録時に最低在庫数を設定できるようにしたい
 - データのエクスポート・バックアップ機能（JSON出力など）
-- 月次レポートの期間切り替え（現状は `THIS_MONTH` がハードコード）
+- 月次レポートの期間切り替え（ダッシュボードは現在月固定）
+- 制作記録の編集・削除（現状は追加のみ）
 
 ### インフラ面（将来）
-- **GitHub Actions → Xserver 自動デプロイ**：stock-roomと同じSSH+SCP方式で構築予定。Secretsは `XSERVER_HOST` / `XSERVER_USER` / `XSERVER_KEY_B64` / `XSERVER_REMOTE_PATH` を使う
-- **Supabase移行**：現状LocalStorageのみ。複数端末同期・データ永続化のためSupabase（PostgreSQL）へ移行予定。zaiko（在庫管理）での実績あり。移行時はLocalStorageの `useLS` フックをSupabase APIクライアントに差し替える形を想定
+- **GitHub Actions → Xserver 自動デプロイ**：SSH+SCP方式で構築予定。Secretsは `XSERVER_HOST` / `XSERVER_USER` / `XSERVER_KEY_B64` / `XSERVER_REMOTE_PATH` を使う
+- **Supabase移行**：現状LocalStorageのみ。複数端末同期・データ永続化のためSupabase（PostgreSQL）へ移行予定。移行時は `useLS` フックをSupabase APIクライアントに差し替える形を想定

@@ -1,25 +1,35 @@
 # Atelier Stock
 
-アクセサリー作家向けの部品・完成品在庫管理Webアプリです。
+アクセサリー作家向けの部品・完成品在庫管理 PWA です。
 
 ## 機能
 
-- **ダッシュボード** — 今月の売上・利益・在庫アラートをひと目で確認
-- **部品在庫** — 仕入れ履歴・平均単価・在庫数の管理（カテゴリ・名前で絞り込み）
-- **完成品** — レシピ（原材料）に基づく原価自動計算、手元在庫・委託在庫の追跡
-- **仕入れ／廃棄** — 仕入れ記録の追加・廃棄記録の管理
-- **売上** — 直販（Minne / Creema / BASE / 実店舗）の売上記録と利益率表示
-- **委託管理** — 委託先ごとの納品・返品・委託売上・廃棄ロスの管理
+- **HOME（ダッシュボード）** — 今月の売上・純利益・利益率・在庫アラートをひと目で確認。KPI カードやチャネル別棒グラフをタップすると売上タブへ遷移してフィルターが適用される
+- **部品在庫** — 部品マスタの登録・編集、加重平均単価・仕入先・在庫ステータス表示。最低在庫数は部品ごとに設定可能
+- **完成品** — サブタブ「在庫」「レシピ・原価」。レシピ（使用部品・コスト）の登録・編集・削除。完成品制作時にレシピ部品・追加部品・ロス部品を選択すると在庫が自動差し引かれる
+- **仕入・廃棄** — 仕入記録・廃棄記録・部品マスタの登録。すべて編集・削除対応
+- **売上** — 年度セレクト＋チャネルフィルターで絞り込み。売上記録の登録・編集・削除。チャネルは動的に追加・編集・削除可能（名前・手数料率・カラー）。委託連動売上も編集可能
+- **委託管理** — 委託先ごとの納品・返品・委託売上・廃棄ロス管理。委託売上を入力すると売上タブに自動連動。委託先詳細の現在庫から「売上計上」ボタンでワンタップ計上
 
 ## 技術スタック
 
-- [React](https://react.dev/) + [Vite](https://vite.dev/)
-- CSSはコンポーネント内インラインスタイル（外部CSSファイルなし）
-- フォント：[DM Serif Display](https://fonts.google.com/specimen/DM+Serif+Display) / [Zen Kaku Gothic New](https://fonts.google.com/specimen/Zen+Kaku+Gothic+New)
+- [React 18](https://react.dev/) + [Vite](https://vite.dev/)
+- スタイル: CSS-in-JS（テンプレートリテラルで定義、`<style>` タグで注入）
+- 状態管理: `useState` / `useMemo` のみ（外部ライブラリなし）
+- 永続化: LocalStorage（`useLS` カスタムフック）
+- フォント: [DM Serif Display](https://fonts.google.com/specimen/DM+Serif+Display) / [Zen Kaku Gothic New](https://fonts.google.com/specimen/Zen+Kaku+Gothic+New)
 
-## 開発環境の起動
+## 開発コマンド
 
 ```bash
 npm install
-npm run dev
+npm run dev      # 開発サーバ起動（http://localhost:5173）
+npm run build    # 本番ビルド → dist/ に出力
+npm run preview  # ビルド結果をローカルで確認
 ```
+
+## デプロイ（Xserver）
+
+1. `npm run build` を実行
+2. `dist/` の中身を FTP で `public_html/` 以下にアップロード
+3. サブディレクトリに置く場合は `vite.config.js` に `base: '/サブディレクトリ名/'` を追加してから再ビルド
