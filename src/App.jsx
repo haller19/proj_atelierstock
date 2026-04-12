@@ -420,6 +420,7 @@ export default function App() {
 
   // フォーム
   const [pf,  setPf]  = useState({ partId:"",   date:today(),   supplier:"",   qty:"",  totalPrice:"", note:"" });
+  const [pfCat, setPfCat] = useState("");
   const [df,  setDf]  = useState({ partId:"",   date:today(),   qty:"",        reason:"" });
   const [editingPurchaseId,  setEditingPurchaseId]  = useState(null);
   const [editingDisposalId,  setEditingDisposalId]  = useState(null);
@@ -530,10 +531,13 @@ export default function App() {
     setModal(null);
     setEditingPurchaseId(null);
     setShowNewSupplier(false);
+    setPfCat("");
     setPf({partId:"",date:today(),supplier:"",qty:"",totalPrice:"",note:""});
   };
   const openEditPurchase = (pu)=>{
     const totalPrice = Math.round(pu.qty * pu.unitPrice * 1.1);
+    const partCat = parts.find(p=>p.id===pu.partId)?.cat || "";
+    setPfCat(partCat);
     setPf({ partId:String(pu.partId), date:pu.date, supplier:pu.supplier, qty:String(pu.qty), totalPrice:String(totalPrice), note:pu.note });
     setEditingPurchaseId(pu.id);
     setShowNewSupplier(false);
@@ -1450,10 +1454,18 @@ export default function App() {
           <div className="ov" onClick={e=>e.target===e.currentTarget&&closePurchaseModal()}>
             <div className="modal">
               <div className="modal-title">{editingPurchaseId ? "仕入れを編集" : "仕入れを記録"}</div>
+              <div className="fr"><label className="fl">カテゴリ</label>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                  <button className={`chip ${pfCat===""?"on":""}`} onClick={()=>{setPfCat("");setPf(f=>({...f,partId:""}));}}>すべて</button>
+                  {[...new Set(parts.map(p=>p.cat))].map(c=>(
+                    <button key={c} className={`chip ${pfCat===c?"on":""}`} onClick={()=>{setPfCat(c);setPf(f=>({...f,partId:""}));}}>{c}</button>
+                  ))}
+                </div>
+              </div>
               <div className="fr"><label className="fl">部品 *</label>
                 <select className="fs" value={pf.partId} onChange={e=>setPf(f=>({...f,partId:e.target.value}))}>
                   <option value="">選択してください</option>
-                  {parts.map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
+                  {parts.filter(p=>pfCat===""||p.cat===pfCat).map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
                 </select>
               </div>
               <div className="fr2">
