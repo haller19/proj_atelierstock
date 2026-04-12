@@ -308,9 +308,11 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 
 /* 売上 */
 .sc-list{display:flex;gap:6px;margin-bottom:13px;overflow-x:auto;padding-bottom:2px;}
-.sc{flex-shrink:0;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:8px 11px;text-align:center;box-shadow:var(--sh);}
+.sc{flex-shrink:0;background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);padding:8px 11px;text-align:center;box-shadow:var(--sh);cursor:pointer;transition:border-color .15s;}
+.sc.active{border-color:var(--ac);border-left:3px solid var(--ac);background:var(--s2);}
 .sc-ch{font-size:10px;color:var(--t2);}
 .sc-v{font-size:14px;font-weight:700;}
+.sc-cnt{font-size:9px;color:var(--t2);margin-top:1px;}
 .sale-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:8px;box-shadow:var(--sh);overflow:hidden;}
 .sale-main{padding:11px 12px;display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;}
 .sale-name{font-size:13px;font-weight:700;}
@@ -417,14 +419,14 @@ export default function App() {
   const [selectedConsigneeId, setSelectedConsigneeId] = useState(null); // 委託先詳細ページ用
 
   // フォーム
-  const [pf,  setPf]  = useState({ partId:"",   date:"",   supplier:"",   qty:"",  totalPrice:"", note:"" });
-  const [df,  setDf]  = useState({ partId:"",   date:"",   qty:"",        reason:"" });
+  const [pf,  setPf]  = useState({ partId:"",   date:today(),   supplier:"",   qty:"",  totalPrice:"", note:"" });
+  const [df,  setDf]  = useState({ partId:"",   date:today(),   qty:"",        reason:"" });
   const [editingPurchaseId,  setEditingPurchaseId]  = useState(null);
   const [editingDisposalId,  setEditingDisposalId]  = useState(null);
-  const [sf,  setSf]  = useState({ productId:"", date:"",  channel:"Minne", qty:"1", price:"", shippingActual:"", memo:"" });
-  const MF_INIT = { productId:"", date:"", qty:"1", note:"", checkedParts:{}, extraParts:[], lossParts:[] };
+  const [sf,  setSf]  = useState({ productId:"", date:today(),  channel:"Minne", qty:"1", price:"", shippingActual:"", memo:"" });
+  const MF_INIT = { productId:"", date:today(), qty:"1", note:"", checkedParts:{}, extraParts:[], lossParts:[] };
   const [mf,  setMf]  = useState(MF_INIT);
-  const [cf,  setCf]  = useState({ productId:"", consigneeId:"", date:"", type:"deliver", qty:"1", salePrice:"", feeRate:"30", memo:"" });
+  const [cf,  setCf]  = useState({ productId:"", consigneeId:"", date:today(), type:"deliver", qty:"1", salePrice:"", feeRate:"30", memo:"" });
   // レシピ登録フォーム
   const [rf, setRf]   = useState({ name:"", desc:"", shippingCost:"", laborCost:"", ingredients:[{partId:"",qty:""}] });
 
@@ -453,8 +455,11 @@ export default function App() {
     return m;
   },[products,made,sales,consignRecords]);
 
+  const partMinStock = (p) => p.minStock ?? MIN_STOCK[p.id] ?? 10;
+
   const partSt = (id,stock)=>{
-    const min=MIN_STOCK[id]||10;
+    const p = parts.find(pt=>pt.id===id);
+    const min = p ? partMinStock(p) : (MIN_STOCK[id]||10);
     return stock<min?"low":stock<min*1.5?"warn":"ok";
   };
 
@@ -462,7 +467,7 @@ export default function App() {
     parts.filter(p=>(cat==="すべて"||p.cat===cat)&&(p.name.includes(q)||p.variant.includes(q)))
   ,[parts,cat,q]);
 
-  const alerts = parts.filter(p=>partStockMap[p.id].stock<(MIN_STOCK[p.id]||10));
+  const alerts = parts.filter(p=>partStockMap[p.id].stock<partMinStock(p));
 
   // 今月集計
   const THIS_MONTH = "2025-04";
@@ -474,6 +479,37 @@ export default function App() {
 
   const prodName = id => products.find(p=>p.id===id)?.name||`商品ID:${id}`;
   const cneeName = id => consignees.find(c=>c.id===id)?.name||`委託先ID:${id}`;
+
+  // 売上タブ：年度・チャネルフィルタ
+  const [selectedChannel, setSelectedChannel] = useState(null);
+
+  const salesYears = useMemo(()=>{
+    const ys = [...new Set(sales.map(s=>s.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
+    return ys.length ? ys : [String(new Date().getFullYear())];
+  },[sales]);
+
+  const [selectedYear, setSelectedYear] = useState(()=>{
+    const ys = [...new Set(sales.map(s=>s.date?.slice(0,4)).filter(Boolean))].sort((a,b)=>b-a);
+    return ys[0] || String(new Date().getFullYear());
+  });
+
+  const yearSales = useMemo(()=>
+    sales.filter(s=>s.date?.startsWith(selectedYear))
+  ,[sales,selectedYear]);
+
+  const byChannelAll = useMemo(()=>{
+    const names = [...new Set([...channels.map(c=>c.name),...yearSales.map(s=>s.channel).filter(Boolean)])];
+    return names.map(ch=>({
+      ch,
+      rev: yearSales.filter(s=>s.channel===ch).reduce((a,s)=>a+s.price*s.qty,0),
+      cnt: yearSales.filter(s=>s.channel===ch).length,
+    }));
+  },[channels,yearSales]);
+
+  const displayedSales = useMemo(()=>{
+    const sorted = [...yearSales].reverse();
+    return selectedChannel ? sorted.filter(s=>s.channel===selectedChannel) : sorted;
+  },[yearSales,selectedChannel]);
 
   // 売上モーダル プレビュー
   const salePreview = useMemo(()=>{
@@ -492,7 +528,7 @@ export default function App() {
     setModal(null);
     setEditingPurchaseId(null);
     setShowNewSupplier(false);
-    setPf({partId:"",date:"",supplier:"",qty:"",totalPrice:"",note:""});
+    setPf({partId:"",date:today(),supplier:"",qty:"",totalPrice:"",note:""});
   };
   const openEditPurchase = (pu)=>{
     const totalPrice = Math.round(pu.qty * pu.unitPrice * 1.1);
@@ -509,7 +545,7 @@ export default function App() {
     if(editingPurchaseId) {
       setPurchases(ps=>ps.map(pu=>pu.id===editingPurchaseId ? {...pu,partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note} : pu));
     } else {
-      setPurchases(p=>[...p,{id:Date.now(),partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note}]);
+      setPurchases(p=>[...p,{id:nextId(),partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note}]);
     }
     closePurchaseModal();
   };
@@ -523,7 +559,7 @@ export default function App() {
   const closeDisposalModal = ()=>{
     setModal(null);
     setEditingDisposalId(null);
-    setDf({partId:"",date:"",qty:"",reason:""});
+    setDf({partId:"",date:today(),qty:"",reason:""});
   };
   const openEditDisposal = (d)=>{
     setDf({ partId:String(d.partId), date:d.date, qty:String(d.qty), reason:d.reason });
@@ -535,7 +571,7 @@ export default function App() {
     if(editingDisposalId) {
       setDisposals(ds=>ds.map(d=>d.id===editingDisposalId ? {...d,partId:+df.partId,date:df.date,qty:+df.qty,reason:df.reason} : d));
     } else {
-      setDisposals(p=>[...p,{id:Date.now(),partId:+df.partId,date:df.date,qty:+df.qty,reason:df.reason}]);
+      setDisposals(p=>[...p,{id:nextId(),partId:+df.partId,date:df.date,qty:+df.qty,reason:df.reason}]);
     }
     closeDisposalModal();
   };
@@ -553,21 +589,58 @@ export default function App() {
     const name = newChannelInput.name.trim();
     if(!name || channels.some(c=>c.name===name)) return;
     const color = CH_PALETTE[channels.length % CH_PALETTE.length];
-    setChannels(cs=>[...cs,{ id:Date.now(), name, feeRate:+newChannelInput.feeRate||0, color }]);
+    setChannels(cs=>[...cs,{ id:nextId(), name, feeRate:+newChannelInput.feeRate||0, color }]);
     setSf(f=>({...f, channel:name}));
     setNewChannelInput({ name:"", feeRate:"" });
     setShowNewChannel(false);
   };
 
+  // ── チャネル編集 ────────────────────────────────────────────
+  const [editingChannelId,  setEditingChannelId]  = useState(null);
+  const [channelEditForm,   setChannelEditForm]   = useState({ name:"", feeRate:"", color:"" });
+
+  const openEditChannel = (ch)=>{
+    setChannelEditForm({ name:ch.name, feeRate:String(ch.feeRate), color:ch.color });
+    setEditingChannelId(ch.id);
+    setModal("channel_edit");
+  };
+
+  const saveChannel = ()=>{
+    const newName = channelEditForm.name.trim();
+    if(!newName) return;
+    const oldName = channels.find(c=>c.id===editingChannelId)?.name;
+    setChannels(cs=>cs.map(c=>c.id===editingChannelId
+      ? {...c, name:newName, feeRate:+channelEditForm.feeRate||0, color:channelEditForm.color}
+      : c));
+    // 売上レコードのチャネル名も一括更新
+    if(oldName && oldName!==newName)
+      setSales(ss=>ss.map(s=>s.channel===oldName ? {...s,channel:newName} : s));
+    setModal(null);
+    setEditingChannelId(null);
+  };
+
+  const deleteChannel = (id)=>{
+    const ch = channels.find(c=>c.id===id);
+    const cnt = sales.filter(s=>s.channel===ch?.name).length;
+    const msg = cnt>0
+      ? `「${ch?.name}」を削除しますか？\n紐づく売上記録 ${cnt} 件のチャネルは空白になります。`
+      : `「${ch?.name}」を削除しますか？`;
+    if(confirm(msg)) {
+      setChannels(cs=>cs.filter(c=>c.id!==id));
+      setModal(null);
+      setEditingChannelId(null);
+    }
+  };
+
   const addSale = ()=>{
     if(!sf.productId||!sf.date||!sf.price||!sf.qty) return;
-    setSales(p=>[...p,{id:Date.now(),productId:+sf.productId,date:sf.date,channel:sf.channel,qty:+sf.qty,price:+sf.price,shippingActual:+sf.shippingActual||0,memo:sf.memo}]);
-    setSf({productId:"",date:"",channel:channels[0]?.name||"",qty:"1",price:"",shippingActual:"",memo:""});
+    setSales(p=>[...p,{id:nextId(),productId:+sf.productId,date:sf.date,channel:sf.channel,qty:+sf.qty,price:+sf.price,shippingActual:+sf.shippingActual||0,memo:sf.memo}]);
+    setSf({productId:"",date:today(),channel:channels[0]?.name||"",qty:"1",price:"",shippingActual:"",memo:""});
     setModal(null);
   };
   const addMade = ()=>{
     if(!mf.productId||!mf.date||!mf.qty) return;
-    const madeId = Date.now();
+    const madeId = nextId();
     setMade(p=>[...p,{id:madeId,productId:+mf.productId,date:mf.date,qty:+mf.qty,note:mf.note}]);
     // 部品使用記録を生成
     const usageRows = [];
@@ -575,17 +648,17 @@ export default function App() {
     if(prod) {
       prod.ingredients.forEach(ing=>{
         if(mf.checkedParts[ing.partId]) {
-          usageRows.push({ id:Date.now()+Math.random(), madeId, partId:ing.partId, date:mf.date, qty:ing.qty*(+mf.qty), type:"recipe" });
+          usageRows.push({ id:nextId(), madeId, partId:ing.partId, date:mf.date, qty:ing.qty*(+mf.qty), type:"recipe" });
         }
       });
     }
     mf.extraParts.forEach(ep=>{
       if(ep.partId&&+ep.qty>0)
-        usageRows.push({ id:Date.now()+Math.random(), madeId, partId:+ep.partId, date:mf.date, qty:+ep.qty, type:"extra" });
+        usageRows.push({ id:nextId(), madeId, partId:+ep.partId, date:mf.date, qty:+ep.qty, type:"extra" });
     });
     mf.lossParts.forEach(lp=>{
       if(lp.partId&&+lp.qty>0)
-        usageRows.push({ id:Date.now()+Math.random(), madeId, partId:+lp.partId, date:mf.date, qty:+lp.qty, type:"loss" });
+        usageRows.push({ id:nextId(), madeId, partId:+lp.partId, date:mf.date, qty:+lp.qty, type:"loss" });
     });
     if(usageRows.length>0) setPartUsages(u=>[...u,...usageRows]);
     setMf(MF_INIT);
@@ -598,7 +671,7 @@ export default function App() {
     setEditingConsignId(null);
     setShowNewCnee(false);
     setNewCneeInput({name:"",address:"",memo:""});
-    setCf({productId:"",consigneeId:"",date:"",type:"deliver",qty:"1",salePrice:"",feeRate:"30",memo:""});
+    setCf({productId:"",consigneeId:"",date:today(),type:"deliver",qty:"1",salePrice:"",feeRate:"30",memo:""});
   };
 
   const openEditConsign = (r)=>{
@@ -664,7 +737,7 @@ export default function App() {
   const addRecipe = ()=>{
     if(!rf.name||rf.ingredients.some(i=>!i.partId||!i.qty)) return;
     const newProd = {
-      id: Date.now(),
+      id: nextId(),
       name: rf.name,
       desc: rf.desc,
       ingredients: rf.ingredients.map(i=>({partId:+i.partId,qty:+i.qty})),
@@ -689,7 +762,7 @@ export default function App() {
   },[purchases]);
 
   // ── 部品マスタ追加・編集 ────────────────────────────────────────────
-  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"" });
+  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10" });
   const [newCatInput,   setNewCatInput]   = useState("");   // カテゴリ新規入力欄
   const [showNewCat,    setShowNewCat]    = useState(false);
   const [editingPartId, setEditingPartId] = useState(null); // null=新規, id=編集中
@@ -698,7 +771,7 @@ export default function App() {
   const [showNewSupplier, setShowNewSupplier] = useState(false);
 
   const openEditPart = (p) => {
-    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban });
+    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban, minStock: String(p.minStock ?? MIN_STOCK[p.id] ?? 10) });
     setEditingPartId(p.id);
     setShowNewCat(false);
     setNewCatInput("");
@@ -715,13 +788,14 @@ export default function App() {
   const addPart = () => {
     const cat = showNewCat ? newCatInput.trim() : partForm.cat;
     if(!partForm.name || !cat || !partForm.hinban) return;
+    const minStock = +partForm.minStock || 10;
     if(editingPartId) {
-      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban } : p));
+      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock } : p));
     } else {
-      const newPart = { id: Date.now(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban };
+      const newPart = { id: nextId(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock };
       setParts(p => [...p, newPart]);
     }
-    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"" });
+    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10" });
     setNewCatInput("");
     setShowNewCat(false);
     setEditingPartId(null);
@@ -734,7 +808,7 @@ export default function App() {
 
   const addConsignee = () => {
     if(!newCneeInput.name.trim()) return;
-    const c = { id: Date.now(), name: newCneeInput.name.trim(), address: newCneeInput.address, memo: newCneeInput.memo };
+    const c = { id: nextId(), name: newCneeInput.name.trim(), address: newCneeInput.address, memo: newCneeInput.memo };
     setConsignees(p => [...p, c]);
     // 新しい委託先を cf にセット
     setCf(f => ({ ...f, consigneeId: String(c.id) }));
@@ -766,7 +840,7 @@ export default function App() {
                 <div className="alert-ttl">⚠ 部品在庫アラート（{alerts.length}件）</div>
                 {alerts.slice(0,4).map(p=>{
                   const {stock}=partStockMap[p.id];
-                  return <div className="alert-row" key={p.id}>{p.name}（{p.variant}）　残 <strong>{stock}{p.unit}</strong> / 最低 {MIN_STOCK[p.id]}{p.unit}</div>;
+                  return <div className="alert-row" key={p.id}>{p.name}（{p.variant}）　残 <strong>{stock}{p.unit}</strong> / 最低 {partMinStock(p)}{p.unit}</div>;
                 })}
               </div>
             )}
@@ -833,7 +907,7 @@ export default function App() {
                   <div className="psb">
                     <div className={`psn ${st}`}>{stock}</div>
                     <div className="psu">{p.unit}</div>
-                    <div className="psm">最低 {MIN_STOCK[p.id]||10}</div>
+                    <div className="psm">最低 {partMinStock(p)}</div>
                     <span className={`sbadge ${st}`}>{st==="low"?"要発注":st==="warn"?"少なめ":"良好"}</span>
                   </div>
                 </div>
@@ -1159,16 +1233,39 @@ export default function App() {
         {/* ════ 売上 ════ */}
         {tab==="sales" && (
           <div className="sec">
-            <div className="sec-title">売上記録</div>
-            <div className="sc-list">
-              {byChannel.map(({ch,rev})=>(
-                <div className="sc" key={ch}>
-                  <div className="sc-ch">{ch}</div>
-                  <div className="sc-v" style={{color:chColMap[ch]}}>¥{fmt(rev)}</div>
-                </div>
-              ))}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div className="sec-title" style={{marginBottom:0}}>売上記録</div>
+              <select className="fs" style={{width:"auto",fontSize:13,padding:"5px 10px"}}
+                value={selectedYear}
+                onChange={e=>{setSelectedYear(e.target.value);setSelectedChannel(null);}}>
+                {salesYears.map(y=><option key={y} value={y}>{y}年</option>)}
+              </select>
             </div>
-            {[...sales].reverse().map(s=>{
+            <div className="sc-list">
+              <div className={`sc ${selectedChannel===null?"active":""}`} onClick={()=>setSelectedChannel(null)}>
+                <div className="sc-ch">すべて</div>
+                <div className="sc-v" style={{color:"var(--tx)"}}>¥{fmt(yearSales.reduce((a,s)=>a+s.price*s.qty,0))}</div>
+                <div className="sc-cnt">{yearSales.length}件</div>
+              </div>
+              {byChannelAll.map(({ch,rev,cnt})=>{
+                const chObj = channels.find(c=>c.name===ch);
+                return (
+                  <div className={`sc ${selectedChannel===ch?"active":""}`} key={ch} style={{position:"relative"}} onClick={()=>setSelectedChannel(prev=>prev===ch?null:ch)}>
+                    {chObj && <button style={{position:"absolute",top:4,right:4,background:"none",border:"none",cursor:"pointer",fontSize:11,color:"var(--t2)",padding:"2px 4px",lineHeight:1}} onClick={e=>{e.stopPropagation();openEditChannel(chObj);}}>✏</button>}
+                    <div className="sc-ch">{ch}</div>
+                    <div className="sc-v" style={{color:chColMap[ch]||"var(--tx)"}}>{rev>0?`¥${fmt(rev)}`:"—"}</div>
+                    <div className="sc-cnt">{cnt}件</div>
+                  </div>
+                );
+              })}
+            </div>
+            {selectedChannel && (
+              <div style={{fontSize:11,color:"var(--ac)",fontWeight:700,marginBottom:8}}>
+                {selectedChannel} · {displayedSales.length}件
+                <button style={{marginLeft:8,fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>setSelectedChannel(null)}>✕ 解除</button>
+              </div>
+            )}
+            {displayedSales.map(s=>{
               const calc  = calcSaleProfit(s,productCostMap,chFeeMap);
               const isOpen= open[`s${s.id}`];
               return (
@@ -1269,6 +1366,10 @@ export default function App() {
                 <select className="fs" value={partForm.unit} onChange={e=>setPartForm(f=>({...f,unit:e.target.value}))}>
                   {["個","枚","ペア","m","cm","セット","袋","本"].map(u=><option key={u}>{u}</option>)}
                 </select>
+              </div>
+              <div className="fr">
+                <label className="fl">最低在庫数</label>
+                <input className="fi" type="number" min="0" placeholder="10" value={partForm.minStock} onChange={e=>setPartForm(f=>({...f,minStock:e.target.value}))}/>
               </div>
               <div className="div"/>
               <button className="btn-p" onClick={addPart}>{editingPartId ? "保存する" : "登録する"}</button>
@@ -1662,6 +1763,28 @@ export default function App() {
               <div className="div"/>
               <button className="btn-p" onClick={addRecipe}>レシピを登録</button>
               <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+            </div>
+          </div>
+        )}
+
+        {modal==="channel_edit" && (
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+            <div className="modal">
+              <div className="modal-title">チャネルを編集</div>
+              <div className="fr"><label className="fl">チャネル名 *</label><input className="fi" value={channelEditForm.name} onChange={e=>setChannelEditForm(f=>({...f,name:e.target.value}))}/></div>
+              <div className="fr"><label className="fl">手数料率（%）</label><input className="fi" type="number" step="0.1" value={channelEditForm.feeRate} onChange={e=>setChannelEditForm(f=>({...f,feeRate:e.target.value}))}/></div>
+              <div className="fr" style={{flexDirection:"column",gap:6}}>
+                <label className="fl">カラー</label>
+                <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
+                  {CH_PALETTE.map(col=>(
+                    <button key={col} onClick={()=>setChannelEditForm(f=>({...f,color:col}))}
+                      style={{width:26,height:26,borderRadius:"50%",background:col,border:channelEditForm.color===col?"3px solid var(--tx)":"2px solid transparent",cursor:"pointer",padding:0}}/>
+                  ))}
+                </div>
+              </div>
+              <button className="btn" style={{marginTop:12}} onClick={saveChannel}>保存</button>
+              <div className="div"/>
+              <button className="btn btn-d" onClick={()=>deleteChannel(editingChannelId)}>このチャネルを削除</button>
             </div>
           </div>
         )}
