@@ -469,12 +469,14 @@ export default function App() {
 
   const alerts = parts.filter(p=>partStockMap[p.id].stock<partMinStock(p));
 
-  // 今月集計
-  const THIS_MONTH = "2025-04";
-  const ms = sales.filter(s=>s.date.startsWith(THIS_MONTH));
+  // 今月集計（動的）
+  const THIS_MONTH  = today().slice(0,7); // "YYYY-MM"
+  const ms          = sales.filter(s=>s.date?.startsWith(THIS_MONTH));
   const totalRev    = ms.reduce((a,s)=>a+s.price*s.qty,0);
   const totalProfit = ms.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap).profit,0);
-  const byChannel   = channels.map(ch=>({ ch:ch.name, rev:ms.filter(s=>s.channel===ch.name).reduce((a,s)=>a+s.price*s.qty,0) }));
+  const byChannel   = channels
+    .map(ch=>({ ch:ch.name, rev:ms.filter(s=>s.channel===ch.name).reduce((a,s)=>a+s.price*s.qty,0) }))
+    .filter(b=>b.rev>0);
   const maxRev      = Math.max(...byChannel.map(b=>b.rev),1);
 
   const prodName = id => products.find(p=>p.id===id)?.name||`商品ID:${id}`;
@@ -834,7 +836,7 @@ export default function App() {
         {/* ════ DASHBOARD ════ */}
         {tab==="dashboard" && (
           <div className="sec">
-            <div className="sec-title">今月のサマリー</div>
+            <div className="sec-title">今月のサマリー <span style={{fontSize:12,color:"var(--t2)",fontWeight:400}}>{THIS_MONTH.replace("-","年")}月</span></div>
             {alerts.length>0 && (
               <div className="alert-box">
                 <div className="alert-ttl">⚠ 部品在庫アラート（{alerts.length}件）</div>
@@ -845,22 +847,22 @@ export default function App() {
               </div>
             )}
             <div className="kpi-grid">
-              <div className="kpi ac">
+              <div className="kpi ac" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
                 <div className="kl">今月の純利益</div>
                 <div className="kv">¥{fmt(totalProfit)}</div>
                 <div className="ks">手数料・送料差引後</div>
               </div>
-              <div className="kpi">
+              <div className="kpi" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
                 <div className="kl">今月の売上</div>
                 <div className="kv">¥{fmt(totalRev)}</div>
                 <div className="ks">{ms.length}件</div>
               </div>
-              <div className="kpi">
+              <div className="kpi" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
                 <div className="kl">利益率</div>
                 <div className="kv">{pct(totalProfit,totalRev)}%</div>
-                <div className="ks">直販ベース</div>
+                <div className="ks">売上比</div>
               </div>
-              <div className="kpi">
+              <div className="kpi" style={{cursor:"pointer"}} onClick={()=>setTab("parts")}>
                 <div className="kl">要発注部品</div>
                 <div className="kv" style={{color:alerts.length>0?"var(--low)":"var(--ok)"}}>{alerts.length}</div>
                 <div className="ks">種類</div>
@@ -868,13 +870,16 @@ export default function App() {
             </div>
             <div className="chart-card">
               <div className="chart-ttl">チャネル別 売上（今月）</div>
-              {byChannel.map(({ch,rev})=>(
-                <div className="bar-row" key={ch}>
-                  <div className="bar-lbl">{ch}</div>
-                  <div className="bar-tr"><div className="bar-f" style={{width:`${pct(rev,maxRev)}%`,background:chColMap[ch]||"var(--t2)"}}/></div>
-                  <div className="bar-v">¥{fmt(rev)}</div>
-                </div>
-              ))}
+              {byChannel.length===0
+                ? <div style={{color:"var(--t2)",fontSize:13,padding:"8px 0"}}>今月の売上データがありません</div>
+                : byChannel.map(({ch,rev})=>(
+                  <div className="bar-row" key={ch} style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(ch);}}>
+                    <div className="bar-lbl">{ch}</div>
+                    <div className="bar-tr"><div className="bar-f" style={{width:`${pct(rev,maxRev)}%`,background:chColMap[ch]||"var(--t2)"}}/></div>
+                    <div className="bar-v">¥{fmt(rev)}</div>
+                  </div>
+                ))
+              }
             </div>
           </div>
         )}
@@ -1303,7 +1308,7 @@ export default function App() {
         {/* ════ Navigation ════ */}
         <nav className="nav">
           {[
-            { id:"dashboard", icon:"◈", label:"ダッシュ" },
+            { id:"dashboard", icon:"◈", label:"HOME" },
             { id:"parts",     icon:"⬡", label:"部品在庫" },
             { id:"prodstock", icon:"◻", label:"完成品" },
             { id:"records",   icon:"◎", label:"仕入・廃棄" },
