@@ -634,11 +634,38 @@ export default function App() {
     }
   };
 
+  const [editingSaleId, setEditingSaleId] = useState(null);
+
+  const closeSaleModal = ()=>{
+    setModal(null);
+    setEditingSaleId(null);
+    setShowNewChannel(false);
+    setNewChannelInput({name:"",feeRate:""});
+    setSf({productId:"",date:today(),channel:channels[0]?.name||"",qty:"1",price:"",shippingActual:"",memo:""});
+  };
+
+  const openEditSale = (s)=>{
+    setSf({ productId:String(s.productId), date:s.date, channel:s.channel, qty:String(s.qty), price:String(s.price), shippingActual:String(s.shippingActual||""), memo:s.memo||"" });
+    setEditingSaleId(s.id);
+    setModal("sale");
+  };
+
   const addSale = ()=>{
     if(!sf.productId||!sf.date||!sf.price||!sf.qty) return;
-    setSales(p=>[...p,{id:nextId(),productId:+sf.productId,date:sf.date,channel:sf.channel,qty:+sf.qty,price:+sf.price,shippingActual:+sf.shippingActual||0,memo:sf.memo}]);
-    setSf({productId:"",date:today(),channel:channels[0]?.name||"",qty:"1",price:"",shippingActual:"",memo:""});
-    setModal(null);
+    const base = { productId:+sf.productId, date:sf.date, channel:sf.channel, qty:+sf.qty, price:+sf.price, shippingActual:+sf.shippingActual||0, memo:sf.memo };
+    if(editingSaleId) {
+      setSales(ss=>ss.map(s=>s.id===editingSaleId ? {...s,...base} : s));
+    } else {
+      setSales(p=>[...p,{id:nextId(),...base}]);
+    }
+    closeSaleModal();
+  };
+
+  const deleteSale = (id)=>{
+    if(confirm("この売上記録を削除しますか？")) {
+      setSales(ss=>ss.filter(s=>s.id!==id));
+      closeSaleModal();
+    }
   };
   const addMade = ()=>{
     if(!mf.productId||!mf.date||!mf.qty) return;
@@ -1331,6 +1358,7 @@ export default function App() {
                       <div className="sd-div"/>
                       <div className="sd-total"><span>純利益</span><span style={{color:calc.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(calc.profit)}（{calc.profitRate}%）</span></div>
                       {s.memo&&<div className="sd-memo">📝 {s.memo}</div>}
+                      <button style={{marginTop:8,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditSale(s)}>✏ 編集</button>
                     </div>
                   )}
                 </div>
@@ -1685,44 +1713,54 @@ export default function App() {
         {modal==="sale" && (
           <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
             <div className="modal">
-              <div className="modal-title">売上を記録</div>
-              <div className="fr"><label className="fl">商品 *</label>
-                <select className="fs" value={sf.productId} onChange={e=>{
-                  const pr=products.find(p=>p.id===+e.target.value);
-                  setSf(f=>({...f,productId:e.target.value,shippingActual:pr?String(pr.shippingCost):""}));
-                }}>
-                  <option value="">選択してください</option>
-                  {products.map(p=>{
-                    const cost=productCostMap[p.id];
-                    return <option key={p.id} value={p.id}>{p.name}（原価¥{fmt(cost.total)}）</option>;
-                  })}
-                </select>
-              </div>
-              <div className="fr2">
-                <div className="fr"><label className="fl">販売日 *</label><input className="fi" type="date" value={sf.date} onChange={e=>setSf(f=>({...f,date:e.target.value}))}/></div>
-                <div className="fr"><label className="fl">チャネル</label>
-                  {!showNewChannel ? (
-                    <div style={{display:"flex",gap:6}}>
-                      <select className="fs" style={{flex:1}} value={sf.channel} onChange={e=>setSf(f=>({...f,channel:e.target.value}))}>
-                        {channels.map(c=><option key={c.id} value={c.name}>{c.name}（{c.feeRate}%）</option>)}
+              <div className="modal-title">{editingSaleId ? "売上を編集" : "売上を記録"}</div>
+              {(()=>{
+                const isConsign = editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId;
+                return isConsign ? (
+                  <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:12,color:"var(--t2)"}}>
+                    📍 委託連動売上 — 商品・チャネルは委託記録から引き継がれます
+                    <div style={{marginTop:4,fontWeight:700,color:"var(--tx)"}}>{prodName(+sf.productId)} · {sf.channel}</div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="fr"><label className="fl">商品 *</label>
+                      <select className="fs" value={sf.productId} onChange={e=>{
+                        const pr=products.find(p=>p.id===+e.target.value);
+                        setSf(f=>({...f,productId:e.target.value,shippingActual:pr?String(pr.shippingCost):""}));
+                      }}>
+                        <option value="">選択してください</option>
+                        {products.map(p=>{
+                          const cost=productCostMap[p.id];
+                          return <option key={p.id} value={p.id}>{p.name}（原価¥{fmt(cost.total)}）</option>;
+                        })}
                       </select>
-                      <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
-                        onClick={()=>setShowNewChannel(true)}>＋ 新規</button>
                     </div>
-                  ) : (
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      <div style={{display:"flex",gap:6}}>
-                        <input className="fi" style={{flex:2}} placeholder="チャネル名（例: iichi）" value={newChannelInput.name} onChange={e=>setNewChannelInput(f=>({...f,name:e.target.value}))} autoFocus/>
-                        <input className="fi" style={{flex:1}} type="number" placeholder="手数料%" value={newChannelInput.feeRate} onChange={e=>setNewChannelInput(f=>({...f,feeRate:e.target.value}))}/>
-                      </div>
-                      <div style={{display:"flex",gap:6}}>
-                        <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"var(--ac)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={addChannel}>追加</button>
-                        <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"none",color:"var(--t2)",border:"1px solid var(--bd)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{setShowNewChannel(false);setNewChannelInput({name:"",feeRate:""});}}>戻る</button>
-                      </div>
+                    <div className="fr"><label className="fl">チャネル</label>
+                      {!showNewChannel ? (
+                        <div style={{display:"flex",gap:6}}>
+                          <select className="fs" style={{flex:1}} value={sf.channel} onChange={e=>setSf(f=>({...f,channel:e.target.value}))}>
+                            {channels.map(c=><option key={c.id} value={c.name}>{c.name}（{c.feeRate}%）</option>)}
+                          </select>
+                          <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
+                            onClick={()=>setShowNewChannel(true)}>＋ 新規</button>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                          <div style={{display:"flex",gap:6}}>
+                            <input className="fi" style={{flex:2}} placeholder="チャネル名（例: iichi）" value={newChannelInput.name} onChange={e=>setNewChannelInput(f=>({...f,name:e.target.value}))} autoFocus/>
+                            <input className="fi" style={{flex:1}} type="number" placeholder="手数料%" value={newChannelInput.feeRate} onChange={e=>setNewChannelInput(f=>({...f,feeRate:e.target.value}))}/>
+                          </div>
+                          <div style={{display:"flex",gap:6}}>
+                            <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"var(--ac)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={addChannel}>追加</button>
+                            <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"none",color:"var(--t2)",border:"1px solid var(--bd)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{setShowNewChannel(false);setNewChannelInput({name:"",feeRate:""});}}>戻る</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </>
+                );
+              })()}
+              <div className="fr"><label className="fl">販売日 *</label><input className="fi" type="date" value={sf.date} onChange={e=>setSf(f=>({...f,date:e.target.value}))}/></div>
               <div className="fr3">
                 <div className="fr"><label className="fl">販売価格 *</label><input className="fi" type="number" placeholder="0" value={sf.price} onChange={e=>setSf(f=>({...f,price:e.target.value}))}/></div>
                 <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="1" value={sf.qty} onChange={e=>setSf(f=>({...f,qty:e.target.value}))}/></div>
@@ -1740,8 +1778,12 @@ export default function App() {
               )}
               <div className="fr"><label className="fl">メモ（注文番号・領収書番号など）</label><input className="fi" placeholder="例: MN-20250412" value={sf.memo} onChange={e=>setSf(f=>({...f,memo:e.target.value}))}/></div>
               <div className="div"/>
-              <button className="btn-p" onClick={addSale}>記録する</button>
-              <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+              <button className="btn-p" onClick={addSale}>{editingSaleId ? "保存する" : "記録する"}</button>
+              <button className="btn-c" onClick={closeSaleModal}>キャンセル</button>
+              {editingSaleId && <>
+                <div className="div"/>
+                <button className="btn btn-d" onClick={()=>deleteSale(editingSaleId)}>この売上記録を削除</button>
+              </>}
             </div>
           </div>
         )}
