@@ -129,7 +129,7 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
   const dispQty = disps.reduce((s,d)=>s+d.qty,0);
 
   if(type==="material") {
-    // 原材料: 仕入累計 - 加工で使った量 - 廃棄累計
+    // 母材: 仕入累計 - 加工で使った量 - 廃棄累計
     const buys    = purchases.filter(p=>p.partId===partId);
     const totalQty = buys.reduce((s,p)=>s+p.qty,0);
     const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
@@ -141,7 +141,7 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
   }
 
   if(type==="part") {
-    // 加工済み部品: 加工記録output累計 - 制作時使用累計 - 廃棄累計
+    // 中間材: 加工記録output累計 - 制作時使用累計 - 廃棄累計
     const usages  = partUsages.filter(u=>u.partId===partId);
     const usedQty = usages.reduce((s,u)=>s+u.qty,0);
     let totalOutputQty = 0;
@@ -581,6 +581,21 @@ export default function App() {
     setPf({ partId:String(p.id), date:today(), supplier:"", qty:"", totalPrice:"", note:"" });
     setEditingPurchaseId(null);
     setModal("purchase");
+  };
+
+  // ── 在庫作成（中間材アラートから加工記録モーダルを開く） ──────
+  const openStockCreate = (p) => {
+    // p は type:"part"（中間材）。parentId が設定されていれば母材を自動選択
+    setProcForm({
+      date:        today(),
+      inputPartId: p.parentId ? String(p.parentId) : "",
+      inputQty:    "",
+      outputs:     [{ partId: String(p.id), qty: "" }],
+      lossQty:     "",
+      note:        "",
+    });
+    setEditingProcId(null);
+    setModal("processing");
   };
 
   // ── 追加ハンドラ ──────────────────────────────────────────────
@@ -1066,11 +1081,21 @@ export default function App() {
                 <div className="alert-ttl">⚠ 部品在庫アラート（{alerts.length}件）</div>
                 {alerts.slice(0,4).map(p=>{
                   const {stock}=partStockMap[p.id];
+                  const isMiddle = p.type==="part";
                   return (
                     <div className="alert-row" key={p.id} style={{display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
-                      <span>{p.name}（{p.variant}）　残 <strong>{stock}{p.unit}</strong> / 最低 {partMinStock(p)}{p.unit}</span>
-                      <button style={{flexShrink:0,fontSize:11,fontWeight:700,background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}
-                        onClick={()=>openReplenish(p)}>在庫補充</button>
+                      <span>
+                        {p.name}（{p.variant}）
+                        {p.type && <span style={{fontSize:9,marginLeft:4,padding:"1px 5px",borderRadius:4,background:"var(--s2)",color:"var(--ac)",border:"1px solid var(--bd)"}}>{isMiddle?"中間材":"母材"}</span>}
+                        　残 <strong>{stock}{p.unit}</strong> / 最低 {partMinStock(p)}{p.unit}
+                      </span>
+                      {isMiddle ? (
+                        <button style={{flexShrink:0,fontSize:11,fontWeight:700,background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}
+                          onClick={()=>openStockCreate(p)}>在庫作成</button>
+                      ) : (
+                        <button style={{flexShrink:0,fontSize:11,fontWeight:700,background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}
+                          onClick={()=>openReplenish(p)}>在庫補充</button>
+                      )}
                     </div>
                   );
                 })}
@@ -1125,14 +1150,14 @@ export default function App() {
               <input className="si" placeholder="名前・バリエーションで検索" value={q} onChange={e=>setQ(e.target.value)}/>
             </div>
             {(()=>{
-              // Build grouped list: 原材料の直後に子（加工済み部品）を表示
+              // Build grouped list: 母材の直後に子（中間材）を表示
               const shownChildIds = new Set();
               const rows = [];
               filteredParts.forEach(p=>{
                 if(shownChildIds.has(p.id)) return;
                 rows.push({p, isChild:false});
                 if(p.type==="material"){
-                  // 同じ原材料を親に持つ加工済み部品を挿入（filteredParts内のみ + 全partsも含む）
+                  // 同じ母材を親に持つ中間材を挿入（filteredParts内のみ + 全partsも含む）
                   parts.filter(c=>c.type==="part"&&c.parentId===p.id).forEach(child=>{
                     shownChildIds.add(child.id);
                     rows.push({p:child, isChild:true});
@@ -1153,13 +1178,13 @@ export default function App() {
                         {isChild && parentPart && (
                           <div style={{fontSize:10,color:"var(--t2)",marginBottom:2,display:"flex",alignItems:"center",gap:4}}>
                             <span style={{color:"var(--ac)"}}>↳</span>
-                            <span>{parentPart.name}{parentPart.hinban?` #${parentPart.hinban}`:""} の加工済み部品</span>
+                            <span>{parentPart.name}{parentPart.hinban?` #${parentPart.hinban}`:""} の中間材</span>
                           </div>
                         )}
                         <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
                         <div className="pv">{p.variant}</div>
                         <span className="pbadge">{p.cat}</span>
-                        {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"原材料":p.type==="part"?"加工済み":""}</span>}
+                        {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
                         <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
                         {supMap.size>1
                           ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}>📦{s}：¥{pr}</span>)}</div>
@@ -1453,7 +1478,7 @@ export default function App() {
             <div className="sub-tabs">
               <button className={`stab ${subTab==="purchase"?"on":""}`} onClick={()=>setSubTab("purchase")}>仕入（{purchases.length}）</button>
               <button className={`stab ${subTab==="disposal"?"on":""}`} onClick={()=>setSubTab("disposal")}>廃棄（{disposals.length}）</button>
-              <button className={`stab ${subTab==="processing"?"on":""}`} onClick={()=>setSubTab("processing")}>加工（{processings.length}）</button>
+              <button className={`stab ${subTab==="processing"?"on":""}`} onClick={()=>setSubTab("processing")}>素材加工（{processings.length}）</button>
               <button className={`stab ${subTab==="part"?"on":""}`} onClick={()=>setSubTab("part")}>部品マスタ（{parts.length}）</button>
             </div>
             {subTab==="purchase" && [...purchases].reverse().map(pu=>{
@@ -1498,7 +1523,7 @@ export default function App() {
               <>
                 {processings.length===0 && <div className="empty">加工記録はありません</div>}
                 {(()=>{
-                  // 原材料ごとにグループ化（親素材の親子関係でソート）
+                  // 母材ごとにグループ化（親素材の親子関係でソート）
                   const sorted = [...processings].sort((a,b)=>b.date.localeCompare(a.date));
                   const groups = [];
                   const seen = new Map();
@@ -1509,7 +1534,7 @@ export default function App() {
                     }
                     groups[seen.get(pr.inputPartId)].records.push(pr);
                   });
-                  // 原材料の parentId でソート（親素材を持つ原材料を先に）
+                  // 母材の parentId でソート（親素材を持つ母材を先に）
                   groups.sort((a,b)=>{
                     const pa = parts.find(p=>p.id===a.inputPartId);
                     const pb = parts.find(p=>p.id===b.inputPartId);
@@ -1562,7 +1587,7 @@ export default function App() {
                       <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
                       <div className="pv">{p.variant}</div>
                       <span className="pbadge">{p.cat}</span>
-                      {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"原材料":p.type==="part"?"加工済み":""}</span>}
+                      {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
                     </div>
                     <div className="psb" style={{alignItems:"flex-end",gap:6}}>
                       <div className="psu">{p.unit}</div>
@@ -1651,8 +1676,8 @@ export default function App() {
           {[
             { id:"dashboard", icon:"◈", label:"HOME" },
             { id:"parts",     icon:"⬡", label:"部品在庫" },
-            { id:"prodstock", icon:"◻", label:"完成品" },
             { id:"records",   icon:"◎", label:"仕入・廃棄" },
+            { id:"prodstock", icon:"◻", label:"完成品" },
             { id:"consign",   icon:"📍", label:"委託" },
             { id:"sales",     icon:"◉", label:"売上" },
           ].map(t=>(
@@ -1677,6 +1702,49 @@ export default function App() {
             <div className="modal">
               <div className="modal-title">{editingPartId ? "部品を編集" : "部品を登録"}</div>
               {!editingPartId && <div className="modal-sub">登録後、仕入記録から在庫を追加できます</div>}
+              <div className="fr">
+                <label className="fl">部品タイプ</label>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[
+                    {val:"",       label:"通常",       desc:"仕入れてそのまま使用"},
+                    {val:"material",label:"母材",   desc:"加工前の素材（布・紐など）"},
+                    {val:"part",   label:"中間材", desc:"母材から切り出した部品"},
+                  ].map(opt=>(
+                    <button key={opt.val}
+                      className={`chip ${partForm.type===opt.val?"on":""}`}
+                      onClick={()=>setPartForm(f=>({...f,type:opt.val,parentId:opt.val==="part"?f.parentId:""}))}
+                      title={opt.desc}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              </div>
+              {partForm.type==="part" && (
+                <div className="fr">
+                  <label className="fl">親の母材</label>
+                  <select className="fs" value={partForm.parentId} onChange={e=>{
+                    const pid = e.target.value;
+                    let hinban = partForm.hinban;
+                    if(pid){
+                      const parent = parts.find(p=>p.id===+pid);
+                      if(parent && parent.hinban){
+                        const children = parts.filter(p=>p.parentId===+pid);
+                        const maxNum = children.reduce((mx,c)=>{
+                          const suffix = c.hinban?.slice(parent.hinban.length+1);
+                          const n = parseInt(suffix,10);
+                          return isNaN(n)?mx:Math.max(mx,n);
+                        },0);
+                        hinban = `${parent.hinban}-${String(maxNum+1).padStart(3,"0")}`;
+                      }
+                    }
+                    setPartForm(f=>({...f,parentId:pid,hinban}));
+                  }}>
+                    <option value="">選択しない</option>
+                    {parts.filter(p=>p.type==="material").map(p=>(
+                      <option key={p.id} value={p.id}>{p.name}（{p.variant}）{p.hinban?` #${p.hinban}`:""}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="fr">
                 <label className="fl">品番</label>
                 <input className="fi" placeholder="例: C-001" value={partForm.hinban} onChange={e=>setPartForm(f=>({...f,hinban:e.target.value}))}/>
@@ -1717,49 +1785,6 @@ export default function App() {
                 <label className="fl">最低在庫数</label>
                 <input className="fi" type="number" min="0" placeholder="10" value={partForm.minStock} onChange={e=>setPartForm(f=>({...f,minStock:e.target.value}))}/>
               </div>
-              <div className="fr">
-                <label className="fl">部品タイプ</label>
-                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                  {[
-                    {val:"",       label:"通常",       desc:"仕入れてそのまま使用"},
-                    {val:"material",label:"原材料",     desc:"加工前の素材（布・紐など）"},
-                    {val:"part",   label:"加工済み部品", desc:"原材料から切り出した部品"},
-                  ].map(opt=>(
-                    <button key={opt.val}
-                      className={`chip ${partForm.type===opt.val?"on":""}`}
-                      onClick={()=>setPartForm(f=>({...f,type:opt.val,parentId:opt.val==="part"?f.parentId:""}))}
-                      title={opt.desc}
-                    >{opt.label}</button>
-                  ))}
-                </div>
-              </div>
-              {partForm.type==="part" && (
-                <div className="fr">
-                  <label className="fl">親の原材料</label>
-                  <select className="fs" value={partForm.parentId} onChange={e=>{
-                    const pid = e.target.value;
-                    let hinban = partForm.hinban;
-                    if(pid){
-                      const parent = parts.find(p=>p.id===+pid);
-                      if(parent && parent.hinban){
-                        const children = parts.filter(p=>p.parentId===+pid);
-                        const maxNum = children.reduce((mx,c)=>{
-                          const suffix = c.hinban?.slice(parent.hinban.length+1);
-                          const n = parseInt(suffix,10);
-                          return isNaN(n)?mx:Math.max(mx,n);
-                        },0);
-                        hinban = `${parent.hinban}-${String(maxNum+1).padStart(3,"0")}`;
-                      }
-                    }
-                    setPartForm(f=>({...f,parentId:pid,hinban}));
-                  }}>
-                    <option value="">選択しない</option>
-                    {parts.filter(p=>p.type==="material").map(p=>(
-                      <option key={p.id} value={p.id}>{p.name}（{p.variant}）{p.hinban?` #${p.hinban}`:""}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
               <div className="div"/>
               <button className="btn-p" onClick={addPart}>{editingPartId ? "保存する" : "登録する"}</button>
               <button className="btn-c" onClick={closePartModal}>キャンセル</button>
@@ -1888,18 +1913,18 @@ export default function App() {
         {modal==="processing" && (
           <div className="ov" onClick={e=>e.target===e.currentTarget&&closeProcModal()}>
             <div className="modal">
-              <div className="modal-title">{editingProcId ? "加工記録を編集" : "加工を記録"}</div>
-              <div className="modal-sub">原材料 → 加工済み部品への変換を記録します</div>
+              <div className="modal-title">{editingProcId ? "中間材の加工記録を編集" : "中間材の加工記録"}</div>
+              <div className="modal-sub">母材 → 中間材への変換を記録します</div>
 
               <div className="fr"><label className="fl">加工日 *</label>
                 <input className="fi" type="date" value={procForm.date} onChange={e=>setProcForm(f=>({...f,date:e.target.value}))}/>
               </div>
 
-              <div className="fr"><label className="fl">使用した原材料 *</label>
+              <div className="fr"><label className="fl">使用した母材 *</label>
                 {parts.filter(p=>p.type==="material").length===0 ? (
                   <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"10px 12px",fontSize:12,color:"var(--t2)",lineHeight:1.6}}>
-                    「原材料」タイプの部品が登録されていません。<br/>
-                    部品在庫タブで部品を編集し、タイプを <strong style={{color:"var(--ac)"}}>「原材料」</strong> に設定してください。
+                    「母材」タイプの部品が登録されていません。<br/>
+                    部品在庫タブで部品を編集し、タイプを <strong style={{color:"var(--ac)"}}>「母材」</strong> に設定してください。
                   </div>
                 ) : (
                   <select className="fs" value={procForm.inputPartId} onChange={e=>setProcForm(f=>({...f,inputPartId:e.target.value}))}>
@@ -1943,10 +1968,10 @@ export default function App() {
                           const children = parts.filter(p=>p.type==="part"&&p.parentId===matId);
                           const others   = parts.filter(p=>p.type==="part"&&p.parentId!==matId);
                           return <>
-                            {children.length>0 && <optgroup label="↳ この原材料の加工済み部品">
+                            {children.length>0 && <optgroup label="↳ この母材の中間材">
                               {children.map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
                             </optgroup>}
-                            {others.length>0 && <optgroup label="その他の加工済み部品">
+                            {others.length>0 && <optgroup label="その他の中間材">
                               {others.map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
                             </optgroup>}
                           </>;
