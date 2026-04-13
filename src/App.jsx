@@ -237,6 +237,16 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 .h-logo{font-family:'DM Serif Display',serif;color:var(--gold);font-size:20px;}
 .h-sub{color:#8c7d6a;font-size:11px;margin-top:1px;}
 .h-mgmt-btn{background:none;border:1px solid rgba(212,168,83,.4);border-radius:8px;color:var(--gold);font-size:11px;cursor:pointer;padding:5px 9px;font-family:inherit;display:flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0;}
+.h-mgmt-btn.open{background:rgba(212,168,83,.15);}
+.mgmt-menu{position:absolute;top:calc(100% + 6px);right:0;background:var(--sf);border:1px solid var(--bd);border-radius:10px;box-shadow:0 6px 24px rgba(44,36,23,.18);z-index:150;min-width:170px;overflow:hidden;}
+.mgmt-menu-item{display:flex;align-items:center;gap:10px;padding:13px 16px;cursor:pointer;border:none;background:none;font-family:inherit;font-size:13px;color:var(--tx);width:100%;text-align:left;border-bottom:1px solid var(--bd);}
+.mgmt-menu-item:last-child{border-bottom:none;}
+.mgmt-menu-item:active{background:var(--s2);}
+.mgmt-page{position:fixed;top:0;left:0;right:0;bottom:0;z-index:180;background:var(--bg);overflow-y:auto;animation:slideInRight .18s ease;}
+@keyframes slideInRight{from{transform:translateX(28px);opacity:0;}to{transform:translateX(0);opacity:1;}}
+.mgmt-ph{background:var(--tx);padding:14px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:10;}
+.mgmt-ph-title{font-family:'DM Serif Display',serif;color:var(--gold);font-size:18px;}
+.mgmt-ph-back{background:none;border:none;color:var(--gold);cursor:pointer;font-size:19px;padding:0;display:flex;align-items:center;line-height:1;}
 
 .nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--sf);border-top:1px solid var(--bd);display:flex;box-shadow:0 -4px 18px rgba(44,36,23,.08);}
 .nb{flex:1;padding:9px 2px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:var(--t2);font-family:inherit;font-size:9px;transition:color .15s;}
@@ -466,7 +476,8 @@ export default function App() {
   const [modal,  setModal]  = useState(null);
   const [open,   setOpen]   = useState({});
   const [selectedConsigneeId, setSelectedConsigneeId] = useState(null); // 委託先詳細ページ用
-  const [mgmtTab,  setMgmtTab]  = useState("parts_master"); // "parts_master" | "category_setting"
+  const [mgmtPage, setMgmtPage] = useState(null); // null | "parts_master" | "category_setting" | "history"
+  const [showMgmtMenu, setShowMgmtMenu] = useState(false);
   const [partsAddTab, setPartsAddTab] = useState("purchase"); // "purchase" | "part"
   const [historyTab, setHistoryTab] = useState("purchase"); // "purchase" | "disposal"
   const [newPartCatInput,    setNewPartCatInput]    = useState("");
@@ -1078,9 +1089,24 @@ export default function App() {
             <div className="h-logo">✦ Atelier Stock</div>
             <div className="h-sub">部品 管理システム</div>
           </div>
-          <button className="h-mgmt-btn" onClick={()=>setModal("mgmt")}>
-            <i className="fal fa-cog"/>管理設定
-          </button>
+          <div style={{position:"relative"}}>
+            <button className={`h-mgmt-btn${showMgmtMenu?" open":""}`} onClick={()=>setShowMgmtMenu(v=>!v)}>
+              <i className="fal fa-cog"/>管理設定<i className={`fal fa-chevron-${showMgmtMenu?"up":"down"}`} style={{fontSize:9}}/>
+            </button>
+            {showMgmtMenu && (
+              <>
+                <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:149}} onClick={()=>setShowMgmtMenu(false)}/>
+                <div className="mgmt-menu">
+                  <button className="mgmt-menu-item" onClick={()=>{setMgmtPage("parts_master");setShowMgmtMenu(false);}}>
+                    <i className="fal fa-boxes" style={{width:16,textAlign:"center"}}/>部品マスター
+                  </button>
+                  <button className="mgmt-menu-item" onClick={()=>{setMgmtPage("category_setting");setShowMgmtMenu(false);}}>
+                    <i className="fal fa-tag" style={{width:16,textAlign:"center"}}/>カテゴリ設定
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* ════ DASHBOARD ════ */}
@@ -1155,7 +1181,7 @@ export default function App() {
           <div className="sec">
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:13}}>
               <div className="sec-title" style={{marginBottom:0}}>部品在庫</div>
-              <button style={{fontSize:11,background:"none",border:"1px solid var(--bd)",borderRadius:8,color:"var(--t2)",cursor:"pointer",padding:"5px 10px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}} onClick={()=>setModal("parts_history")}>
+              <button style={{fontSize:11,background:"none",border:"1px solid var(--bd)",borderRadius:8,color:"var(--t2)",cursor:"pointer",padding:"5px 10px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}} onClick={()=>{setHistoryTab("purchase");setMgmtPage("history");}}>
                 <i className="fal fa-history"/>履歴参照
               </button>
             </div>
@@ -2484,15 +2510,20 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ 部品在庫 履歴参照モーダル ════ */}
-        {modal==="parts_history" && (
-          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-            <div className="modal">
-              <div className="modal-title">仕入・廃棄 履歴</div>
-              <div className="sub-tabs">
+        {/* ════ 仕入・廃棄 履歴ページ ════ */}
+        {mgmtPage==="history" && (
+          <div className="mgmt-page">
+            <div className="mgmt-ph">
+              <button className="mgmt-ph-back" onClick={()=>setMgmtPage(null)}><i className="fal fa-chevron-left"/></button>
+              <div className="mgmt-ph-title"><i className="fal fa-history" style={{marginRight:8}}/>仕入・廃棄 履歴</div>
+            </div>
+            <div style={{padding:"14px 14px 0"}}>
+              <div className="sub-tabs" style={{marginBottom:0}}>
                 <button className={`stab ${historyTab==="purchase"?"on":""}`} onClick={()=>setHistoryTab("purchase")}>仕入記録（{purchases.length}）</button>
                 <button className={`stab ${historyTab==="disposal"?"on":""}`} onClick={()=>setHistoryTab("disposal")}>廃棄記録（{disposals.length}）</button>
               </div>
+            </div>
+            <div style={{padding:"12px 14px"}}>
               {historyTab==="purchase" && (
                 <>
                   {purchases.length===0 && <div className="empty">仕入記録はありません</div>}
@@ -2536,90 +2567,84 @@ export default function App() {
                   })}
                 </>
               )}
-              <div className="div"/>
-              <button className="btn-c" onClick={()=>setModal(null)}>閉じる</button>
             </div>
           </div>
         )}
 
-        {/* ════ 管理設定モーダル ════ */}
-        {modal==="mgmt" && (
-          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-            <div className="modal">
-              <div className="modal-title"><i className="fal fa-cog" style={{marginRight:8}}/>管理設定</div>
-              <div className="sub-tabs" style={{marginBottom:13}}>
-                <button className={`stab ${mgmtTab==="parts_master"?"on":""}`} onClick={()=>setMgmtTab("parts_master")}>部品マスター</button>
-                <button className={`stab ${mgmtTab==="category_setting"?"on":""}`} onClick={()=>setMgmtTab("category_setting")}>カテゴリ設定</button>
+        {/* ════ 管理設定ページ: 部品マスター ════ */}
+        {mgmtPage==="parts_master" && (
+          <div className="mgmt-page">
+            <div className="mgmt-ph">
+              <button className="mgmt-ph-back" onClick={()=>setMgmtPage(null)}><i className="fal fa-chevron-left"/></button>
+              <div className="mgmt-ph-title"><i className="fal fa-boxes" style={{marginRight:8}}/>部品マスター</div>
+            </div>
+            <div style={{padding:"16px 14px"}}>
+              <div style={{display:"flex",justifyContent:"flex-end",marginBottom:12}}>
+                <button style={{fontSize:12,background:"var(--ac)",color:"#fff",border:"none",borderRadius:8,padding:"7px 14px",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}
+                  onClick={()=>{ setEditingPartId(null); setPartForm({cat:"金具",name:"",variant:"",unit:"個",hinban:"",minStock:"10",type:"",parentId:""}); setShowNewCat(false); setNewCatInput(""); setModal("part"); }}>
+                  <i className="fas fa-plus"/>部品を追加
+                </button>
+              </div>
+              {parts.length===0 && <div className="empty">部品が登録されていません</div>}
+              {parts.map(p=>(
+                <div className="pc" key={p.id} style={{cursor:"default"}}>
+                  <div style={{flex:1}}>
+                    <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
+                    <div className="pv">{p.variant}</div>
+                    <span className="pbadge">{p.cat}</span>
+                    {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
+                  </div>
+                  <div className="psb" style={{alignItems:"flex-end",gap:6}}>
+                    <div className="psu">{p.unit}</div>
+                    <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ════ 管理設定ページ: カテゴリ設定 ════ */}
+        {mgmtPage==="category_setting" && (
+          <div className="mgmt-page">
+            <div className="mgmt-ph">
+              <button className="mgmt-ph-back" onClick={()=>setMgmtPage(null)}><i className="fal fa-chevron-left"/></button>
+              <div className="mgmt-ph-title"><i className="fal fa-tag" style={{marginRight:8}}/>カテゴリ設定</div>
+            </div>
+            <div style={{padding:"16px 14px"}}>
+              {/* 部品カテゴリ */}
+              <div className="sec-label" style={{marginBottom:8}}>部品カテゴリ</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                {partCatMaster.map(c=>(
+                  <div key={c} style={{display:"inline-flex",alignItems:"center",gap:2,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 12px",fontSize:12}}>
+                    <span>{c}</span>
+                    <button style={{background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:13,padding:"0 0 0 5px",lineHeight:1}} onClick={()=>setPartCatMaster(m=>m.filter(x=>x!==c))}><i className="fal fa-times"/></button>
+                  </div>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6,marginBottom:24}}>
+                <input className="fi" placeholder="新規カテゴリ名" value={newPartCatInput} onChange={e=>setNewPartCatInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"){const v=newPartCatInput.trim();if(v&&!partCatMaster.includes(v)){setPartCatMaster(m=>[...m,v]);setNewPartCatInput("");}}}}/>
+                <button style={{flexShrink:0,padding:"0 14px",border:"none",borderRadius:8,background:"var(--ac)",color:"#fff",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}
+                  onClick={()=>{const v=newPartCatInput.trim();if(v&&!partCatMaster.includes(v)){setPartCatMaster(m=>[...m,v]);setNewPartCatInput("");}}}>追加</button>
               </div>
 
-              {/* ── 部品マスター ── */}
-              {mgmtTab==="parts_master" && (
-                <>
-                  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
-                    <button style={{fontSize:12,background:"var(--ac)",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}
-                      onClick={()=>{ setEditingPartId(null); setPartForm({cat:"金具",name:"",variant:"",unit:"個",hinban:"",minStock:"10",type:"",parentId:""}); setShowNewCat(false); setNewCatInput(""); setModal("part"); }}>
-                      <i className="fas fa-plus"/>部品を追加
-                    </button>
+              {/* 作品カテゴリ */}
+              <div className="sec-label" style={{marginBottom:8}}>作品カテゴリ</div>
+              <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                {productCatMaster.map(c=>(
+                  <div key={c} style={{display:"inline-flex",alignItems:"center",gap:2,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:20,padding:"4px 12px",fontSize:12}}>
+                    <span>{c}</span>
+                    <button style={{background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:13,padding:"0 0 0 5px",lineHeight:1}} onClick={()=>setProductCatMaster(m=>m.filter(x=>x!==c))}><i className="fal fa-times"/></button>
                   </div>
-                  {parts.length===0 && <div className="empty">部品が登録されていません</div>}
-                  {parts.map(p=>(
-                    <div className="pc" key={p.id} style={{cursor:"default"}}>
-                      <div style={{flex:1}}>
-                        <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
-                        <div className="pv">{p.variant}</div>
-                        <span className="pbadge">{p.cat}</span>
-                        {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
-                      </div>
-                      <div className="psb" style={{alignItems:"flex-end",gap:6}}>
-                        <div className="psu">{p.unit}</div>
-                        <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
-                      </div>
-                    </div>
-                  ))}
-                </>
-              )}
-
-              {/* ── カテゴリ設定 ── */}
-              {mgmtTab==="category_setting" && (
-                <>
-                  {/* 部品カテゴリ */}
-                  <div className="sec-label">部品カテゴリ</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-                    {partCatMaster.map(c=>(
-                      <div key={c} style={{display:"inline-flex",alignItems:"center",gap:2,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 10px",fontSize:11}}>
-                        <span>{c}</span>
-                        <button style={{background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:12,padding:"0 0 0 4px",lineHeight:1}} onClick={()=>setPartCatMaster(m=>m.filter(x=>x!==c))}><i className="fal fa-times"/></button>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{display:"flex",gap:6,marginBottom:16}}>
-                    <input className="fi" placeholder="新規カテゴリ名" value={newPartCatInput} onChange={e=>setNewPartCatInput(e.target.value)}
-                      onKeyDown={e=>{if(e.key==="Enter"){const v=newPartCatInput.trim();if(v&&!partCatMaster.includes(v)){setPartCatMaster(m=>[...m,v]);setNewPartCatInput("");}}}}/>
-                    <button style={{flexShrink:0,padding:"0 14px",border:"none",borderRadius:8,background:"var(--ac)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
-                      onClick={()=>{const v=newPartCatInput.trim();if(v&&!partCatMaster.includes(v)){setPartCatMaster(m=>[...m,v]);setNewPartCatInput("");}}}>追加</button>
-                  </div>
-
-                  {/* 作品カテゴリ */}
-                  <div className="sec-label">作品カテゴリ</div>
-                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
-                    {productCatMaster.map(c=>(
-                      <div key={c} style={{display:"inline-flex",alignItems:"center",gap:2,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 10px",fontSize:11}}>
-                        <span>{c}</span>
-                        <button style={{background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:12,padding:"0 0 0 4px",lineHeight:1}} onClick={()=>setProductCatMaster(m=>m.filter(x=>x!==c))}><i className="fal fa-times"/></button>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{display:"flex",gap:6,marginBottom:8}}>
-                    <input className="fi" placeholder="新規カテゴリ名" value={newProductCatInput} onChange={e=>setNewProductCatInput(e.target.value)}
-                      onKeyDown={e=>{if(e.key==="Enter"){const v=newProductCatInput.trim();if(v&&!productCatMaster.includes(v)){setProductCatMaster(m=>[...m,v]);setNewProductCatInput("");}}}}/>
-                    <button style={{flexShrink:0,padding:"0 14px",border:"none",borderRadius:8,background:"var(--ac)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
-                      onClick={()=>{const v=newProductCatInput.trim();if(v&&!productCatMaster.includes(v)){setProductCatMaster(m=>[...m,v]);setNewProductCatInput("");}}}>追加</button>
-                  </div>
-                </>
-              )}
-
-              <div className="div"/>
-              <button className="btn-c" onClick={()=>setModal(null)}>閉じる</button>
+                ))}
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <input className="fi" placeholder="新規カテゴリ名" value={newProductCatInput} onChange={e=>setNewProductCatInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"){const v=newProductCatInput.trim();if(v&&!productCatMaster.includes(v)){setProductCatMaster(m=>[...m,v]);setNewProductCatInput("");}}}}/>
+                <button style={{flexShrink:0,padding:"0 14px",border:"none",borderRadius:8,background:"var(--ac)",color:"#fff",fontSize:13,cursor:"pointer",fontFamily:"inherit"}}
+                  onClick={()=>{const v=newProductCatInput.trim();if(v&&!productCatMaster.includes(v)){setProductCatMaster(m=>[...m,v]);setNewProductCatInput("");}}}>追加</button>
+              </div>
             </div>
           </div>
         )}
