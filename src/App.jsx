@@ -111,6 +111,12 @@ const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロ�
 let _idSeed = Date.now();
 const nextId = () => ++_idSeed;
 const today  = () => new Date().toISOString().slice(0,10);
+const parseFraction = (str) => {
+  const s = String(str).trim();
+  if(s.includes("/")){ const [a,b]=s.split("/").map(Number); return b!==0?a/b:NaN; }
+  if(s.endsWith("%")) return parseFloat(s)/100;
+  return parseFloat(s);
+};
 const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss:"var(--low)", sale:"var(--ok)" };
 
 // ─── ユーティリティ ───────────────────────────────────────────
@@ -893,7 +899,7 @@ export default function App() {
 
   const addPart = () => {
     const cat = showNewCat ? newCatInput.trim() : partForm.cat;
-    if(!partForm.name || !cat || !partForm.hinban) return;
+    if(!partForm.name || !cat) return;
     const minStock = +partForm.minStock || 10;
     const type = partForm.type || undefined;
     if(editingPartId) {
@@ -937,10 +943,12 @@ export default function App() {
     if(!procForm.inputPartId||!procForm.inputQty||!procForm.date) return;
     const validOutputs = procForm.outputs.filter(o=>o.partId&&o.qty);
     if(validOutputs.length===0) return;
+    const parsedInputQty = parseFraction(procForm.inputQty);
+    if(isNaN(parsedInputQty)||parsedInputQty<=0) return;
     const record = {
       date:        procForm.date,
       inputPartId: +procForm.inputPartId,
-      inputQty:    +procForm.inputQty,
+      inputQty:    parsedInputQty,
       outputs:     validOutputs.map(o=>({partId:+o.partId,qty:+o.qty})),
       lossQty:     procForm.lossQty!=="" ? +procForm.lossQty : 0,
       note:        procForm.note,
@@ -959,6 +967,17 @@ export default function App() {
       closeProcModal();
     }
   };
+
+  // ── 加工モーダル：残量プレビュー ─────────────────────────────────
+  const procStockPreview = useMemo(()=>{
+    if(!procForm.inputPartId) return null;
+    const pid = +procForm.inputPartId;
+    const current = partStockMap[pid]?.stock ?? 0;
+    const parsed  = parseFraction(procForm.inputQty);
+    if(isNaN(parsed)||parsed<=0) return { current, after:null, unit: parts.find(p=>p.id===pid)?.unit||"" };
+    const after = current - parsed;
+    return { current, parsed, after, unit: parts.find(p=>p.id===pid)?.unit||"", insufficient: after < 0 };
+  },[procForm.inputPartId, procForm.inputQty, partStockMap, parts]);
 
   // ── 委託先新規追加 ────────────────────────────────────────────
   const [newCneeInput, setNewCneeInput] = useState({ name:"", address:"", memo:"" });
@@ -1053,17 +1072,29 @@ export default function App() {
             {filteredParts.map(p=>{
               const {stock,avgPrice,supMap}=partStockMap[p.id];
               const st=partSt(p.id,stock);
+              const totalBought = p.type==="material" ? purchases.filter(pu=>pu.partId===p.id).reduce((s,pu)=>s+pu.qty,0) : 0;
+              const stockPct    = totalBought>0 ? Math.max(0,Math.min(100,Math.round(stock/totalBought*100))) : 0;
               return (
                 <div className={`pc ${st}`} key={p.id}>
                   <div style={{flex:1}}>
                     <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
                     <div className="pv">{p.variant}</div>
                     <span className="pbadge">{p.cat}</span>
+                    {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"原材料":p.type==="part"?"加工済み":""}</span>}
                     <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
                     {supMap.size>1
                       ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}>📦{s}：¥{pr}</span>)}</div>
                       : <div className="price-row">📦 {[...supMap.keys()][0]||"—"}</div>
                     }
+                    {p.type==="material" && totalBought>0 && (
+                      <div style={{marginTop:6}}>
+                        <div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
+                          <div style={{height:"100%",width:`${stockPct}%`,background:stockPct>50?"var(--ok)":stockPct>20?"var(--warn)":"var(--low)",borderRadius:3,transition:"width .3s"}}/>
+                        </div>
+                        <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{stock}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
+                      </div>
+                    )}
+                    <button style={{marginTop:6,background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}>✏ 編集</button>
                   </div>
                   <div className="psb">
                     <div className={`psn ${st}`}>{stock}</div>
@@ -1524,7 +1555,7 @@ export default function App() {
               <div className="modal-title">{editingPartId ? "部品を編集" : "部品を登録"}</div>
               {!editingPartId && <div className="modal-sub">登録後、仕入記録から在庫を追加できます</div>}
               <div className="fr">
-                <label className="fl">品番 *</label>
+                <label className="fl">品番</label>
                 <input className="fi" placeholder="例: C-001" value={partForm.hinban} onChange={e=>setPartForm(f=>({...f,hinban:e.target.value}))}/>
               </div>
               <div className="fr">
@@ -1594,7 +1625,7 @@ export default function App() {
               <div className="fr"><label className="fl">カテゴリ</label>
                 <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
                   <button className={`chip ${pfCat===""?"on":""}`} onClick={()=>{setPfCat("");setPf(f=>({...f,partId:""}));}}>すべて</button>
-                  {[...new Set(parts.map(p=>p.cat))].map(c=>(
+                  {[...new Set(parts.filter(p=>p.type!=="part").map(p=>p.cat))].map(c=>(
                     <button key={c} className={`chip ${pfCat===c?"on":""}`} onClick={()=>{setPfCat(c);setPf(f=>({...f,partId:""}));}}>{c}</button>
                   ))}
                 </div>
@@ -1602,7 +1633,7 @@ export default function App() {
               <div className="fr"><label className="fl">部品 *</label>
                 <select className="fs" value={pf.partId} onChange={e=>setPf(f=>({...f,partId:e.target.value}))}>
                   <option value="">選択してください</option>
-                  {parts.filter(p=>pfCat===""||p.cat===pfCat).map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
+                  {parts.filter(p=>p.type!=="part"&&(pfCat===""||p.cat===pfCat)).map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
                 </select>
               </div>
               <div className="fr2">
@@ -1715,18 +1746,41 @@ export default function App() {
               </div>
 
               <div className="fr"><label className="fl">使用した原材料 *</label>
-                <select className="fs" value={procForm.inputPartId} onChange={e=>setProcForm(f=>({...f,inputPartId:e.target.value}))}>
-                  <option value="">選択してください</option>
-                  {parts.filter(p=>p.type==="material").map(p=>{
-                    const {stock}=partStockMap[p.id]||{stock:0};
-                    return <option key={p.id} value={p.id}>{p.name}（{p.variant}） 残{stock}{p.unit}</option>;
-                  })}
-                </select>
+                {parts.filter(p=>p.type==="material").length===0 ? (
+                  <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"10px 12px",fontSize:12,color:"var(--t2)",lineHeight:1.6}}>
+                    「原材料」タイプの部品が登録されていません。<br/>
+                    部品在庫タブで部品を編集し、タイプを <strong style={{color:"var(--ac)"}}>「原材料」</strong> に設定してください。
+                  </div>
+                ) : (
+                  <select className="fs" value={procForm.inputPartId} onChange={e=>setProcForm(f=>({...f,inputPartId:e.target.value}))}>
+                    <option value="">選択してください</option>
+                    {parts.filter(p=>p.type==="material").map(p=>{
+                      const {stock}=partStockMap[p.id]||{stock:0};
+                      return <option key={p.id} value={p.id}>{p.name}（{p.variant}） 残{stock}{p.unit}</option>;
+                    })}
+                  </select>
+                )}
               </div>
 
-              <div className="fr"><label className="fl">使用量 *（{procForm.inputPartId ? parts.find(p=>p.id===+procForm.inputPartId)?.unit||"" : "—"}）</label>
-                <input className="fi" type="number" placeholder="0" value={procForm.inputQty} onChange={e=>setProcForm(f=>({...f,inputQty:e.target.value}))}/>
+              <div className="fr"><label className="fl">使用量 *（{procForm.inputPartId ? parts.find(p=>p.id===+procForm.inputPartId)?.unit||"" : "—"}）<span style={{fontSize:10,color:"var(--t2)",fontWeight:400,marginLeft:4}}>小数・分数・%で入力可</span></label>
+                <input className="fi" type="text" inputMode="decimal" placeholder="例: 0.5 / 1/3 / 25%" value={procForm.inputQty} onChange={e=>setProcForm(f=>({...f,inputQty:e.target.value}))}/>
               </div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:6}}>
+                {["1/2","1/3","1/4","1/5","2/3","3/4"].map(frac=>(
+                  <button key={frac} className={`chip ${procForm.inputQty===frac?"on":""}`}
+                    onClick={()=>setProcForm(f=>({...f,inputQty:frac}))}>{frac}</button>
+                ))}
+              </div>
+              {procStockPreview && procStockPreview.after!==null && (
+                <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"7px 12px",marginBottom:8,fontSize:12}}>
+                  <span style={{color:"var(--t2)"}}>現在在庫 {procStockPreview.current}{procStockPreview.unit}</span>
+                  <span style={{margin:"0 6px",color:"var(--t2)"}}>→</span>
+                  <span style={{fontWeight:700,color:procStockPreview.insufficient?"var(--low)":"var(--ok)"}}>
+                    使用後 {Math.round(procStockPreview.after*1000)/1000}{procStockPreview.unit}
+                    {procStockPreview.insufficient&&" ⚠ 在庫不足"}
+                  </span>
+                </div>
+              )}
 
               <div className="fr"><label className="fl">切り出し結果 *</label>
                 <div style={{width:"100%"}}>

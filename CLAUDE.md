@@ -201,6 +201,40 @@ partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
 - 見出し・数値: `DM Serif Display`（Google Fonts）
 - 本文・UI: `Zen Kaku Gothic New`（Google Fonts）
 
+### 加工記録の入力UX
+
+原材料の使用量入力は「測りにくい単位」（m²・cm等）になるため、以下の補助UIを設ける。
+
+**入力欄の仕様**
+- 数値テキスト入力1つ（小数・分数・パーセント表記すべて受け付ける）
+- `parseFraction(str)` ヘルパーで統一的にパース
+
+```js
+const parseFraction = (str) => {
+  const s = String(str).trim();
+  if (s.includes("/")) {
+    const [a, b] = s.split("/").map(Number);
+    return b !== 0 ? a / b : NaN;
+  }
+  if (s.endsWith("%")) return parseFloat(s) / 100;
+  return parseFloat(s);
+};
+// 使用例: "1/3" → 0.333, "25%" → 0.25, "0.5" → 0.5
+```
+
+**チップボタン（割り算ショートカット）**
+- `[1/2]` `[1/3]` `[1/4]` `[1/5]` `[2/3]` `[3/4]` を横並びで表示
+- タップすると入力欄に分数テキストをセット → 残量プレビューが即更新
+
+**残量プレビュー**
+- 原材料選択 + 使用量入力のたびにリアルタイム表示
+- `現在在庫 2.0m → 使用後 1.5m`
+- 在庫が足りない場合は赤字で警告
+
+**原材料カードの在庫表示**
+- 数値に加えて割合バーを表示（仕入れ累計を100%として残量を視覚化）
+- `████████░░  1.5m / 2.0m（75%）`
+
 ### UIパターン
 
 - カードをタップ → 詳細展開（`open` state で管理、キー: `ps{id}` `rc{id}` `s{id}` `cn{id}`）
