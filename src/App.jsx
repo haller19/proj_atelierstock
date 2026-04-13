@@ -233,9 +233,10 @@ const CSS = `
 body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var(--tx);min-height:100vh;}
 .app{max-width:900px;margin:0 auto;padding:0 0 76px;}
 
-.header{background:var(--tx);padding:17px 18px 13px;}
+.header{background:var(--tx);padding:17px 18px 13px;display:flex;justify-content:space-between;align-items:center;}
 .h-logo{font-family:'DM Serif Display',serif;color:var(--gold);font-size:20px;}
 .h-sub{color:#8c7d6a;font-size:11px;margin-top:1px;}
+.h-mgmt-btn{background:none;border:1px solid rgba(212,168,83,.4);border-radius:8px;color:var(--gold);font-size:11px;cursor:pointer;padding:5px 9px;font-family:inherit;display:flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0;}
 
 .nav{position:fixed;bottom:0;left:0;right:0;z-index:100;background:var(--sf);border-top:1px solid var(--bd);display:flex;box-shadow:0 -4px 18px rgba(44,36,23,.08);}
 .nb{flex:1;padding:9px 2px 6px;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;cursor:pointer;color:var(--t2);font-family:inherit;font-size:9px;transition:color .15s;}
@@ -454,6 +455,8 @@ export default function App() {
   const [channels,       setChannels]       = useLS("as_channels",        INIT_CHANNELS);
   const [partUsages,     setPartUsages]     = useLS("as_part_usages",     []);
   const [processings,    setProcessings]    = useLS("as_processings",     INIT_PROCESSINGS);
+  const [partCatMaster,  setPartCatMaster]  = useLS("as_part_cats",       ["金具","チェーン","ビーズ","梱包材"]);
+  const [productCatMaster,setProductCatMaster]= useLS("as_product_cats",  ["ピアス","イヤリング","ネックレス","ブレスレット","リング","その他"]);
 
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
@@ -463,6 +466,11 @@ export default function App() {
   const [modal,  setModal]  = useState(null);
   const [open,   setOpen]   = useState({});
   const [selectedConsigneeId, setSelectedConsigneeId] = useState(null); // 委託先詳細ページ用
+  const [mgmtTab,  setMgmtTab]  = useState("parts_master"); // "parts_master" | "category_setting"
+  const [partsAddTab, setPartsAddTab] = useState("purchase"); // "purchase" | "part"
+  const [historyTab, setHistoryTab] = useState("purchase"); // "purchase" | "disposal"
+  const [newPartCatInput,    setNewPartCatInput]    = useState("");
+  const [newProductCatInput, setNewProductCatInput] = useState("");
 
   // フォーム
   const [pf,  setPf]  = useState({ partId:"",   date:today(),   supplier:"",   qty:"",  totalPrice:"", note:"" });
@@ -891,19 +899,17 @@ export default function App() {
     }
   };
 
-  // ── 部品カテゴリ（動的・重複排除） ────────────────────────────
+  // ── 部品カテゴリ（マスター管理 + 既存データからのフォールバック） ──
   const partCats = useMemo(()=>{
-    const base = ["金具","チェーン","ビーズ","梱包材"];
-    const fromParts = parts.map(p=>p.cat).filter(c=>!base.includes(c));
-    return [...base, ...new Set(fromParts)];
-  },[parts]);
+    const fromParts = parts.map(p=>p.cat).filter(c=>c&&!partCatMaster.includes(c));
+    return [...partCatMaster, ...new Set(fromParts)];
+  },[parts, partCatMaster]);
 
-  // ── 作品カテゴリ（動的・重複排除） ──────────────────────────
+  // ── 作品カテゴリ（マスター管理 + 既存データからのフォールバック） ──
   const productCats = useMemo(()=>{
-    const base = ["ピアス","イヤリング","ネックレス","ブレスレット","リング","その他"];
-    const fromProds = products.map(p=>p.cat).filter(c=>c&&!base.includes(c));
-    return [...base, ...new Set(fromProds)];
-  },[products]);
+    const fromProds = products.map(p=>p.cat).filter(c=>c&&!productCatMaster.includes(c));
+    return [...productCatMaster, ...new Set(fromProds)];
+  },[products, productCatMaster]);
 
   const suppliers = useMemo(()=>{
     const base = purchases.map(p=>p.supplier).filter(s=>s&&s.trim());
@@ -1068,8 +1074,13 @@ export default function App() {
       <div className="app">
 
         <div className="header">
-          <div className="h-logo">✦ Atelier Stock</div>
-          <div className="h-sub">部品 管理システム</div>
+          <div>
+            <div className="h-logo">✦ Atelier Stock</div>
+            <div className="h-sub">部品 管理システム</div>
+          </div>
+          <button className="h-mgmt-btn" onClick={()=>setModal("mgmt")}>
+            <i className="fal fa-cog"/>管理設定
+          </button>
         </div>
 
         {/* ════ DASHBOARD ════ */}
@@ -1142,7 +1153,12 @@ export default function App() {
         {/* ════ 部品在庫 ════ */}
         {tab==="parts" && (
           <div className="sec">
-            <div className="sec-title">部品在庫</div>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:13}}>
+              <div className="sec-title" style={{marginBottom:0}}>部品在庫</div>
+              <button style={{fontSize:11,background:"none",border:"1px solid var(--bd)",borderRadius:8,color:"var(--t2)",cursor:"pointer",padding:"5px 10px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}} onClick={()=>setModal("parts_history")}>
+                <i className="fal fa-history"/>履歴参照
+              </button>
+            </div>
             <div className="filter-row">
               {["すべて",...partCats].map(c=><button key={c} className={`chip ${cat===c?"on":""}`} onClick={()=>setCat(c)}>{c}</button>)}
             </div>
@@ -1198,7 +1214,11 @@ export default function App() {
                             <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{stock}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
                           </div>
                         )}
-                        <button style={{marginTop:6,background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
+                        <div style={{marginTop:6,display:"flex",gap:5,flexWrap:"wrap"}}>
+                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
+                          {p.type!=="part" && <button style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>仕入</button>}
+                          <button style={{background:"none",color:"var(--low)",border:"1px solid var(--low)",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>{setDf({partId:String(p.id),date:today(),qty:"",reason:""});setEditingDisposalId(null);setModal("disposal");}}><i className="fal fa-trash" style={{marginRight:4}}/>廃棄</button>
+                        </div>
                       </div>
                       <div className="psb">
                         <div className={`psn ${st}`}>{stock}</div>
@@ -1471,132 +1491,65 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ 仕入・廃棄 ════ */}
+        {/* ════ 素材加工 ════ */}
         {tab==="records" && (
           <div className="sec">
-            <div className="sec-title">仕入・廃棄記録</div>
-            <div className="sub-tabs">
-              <button className={`stab ${subTab==="purchase"?"on":""}`} onClick={()=>setSubTab("purchase")}>仕入（{purchases.length}）</button>
-              <button className={`stab ${subTab==="disposal"?"on":""}`} onClick={()=>setSubTab("disposal")}>廃棄（{disposals.length}）</button>
-              <button className={`stab ${subTab==="processing"?"on":""}`} onClick={()=>setSubTab("processing")}>素材加工（{processings.length}）</button>
-              <button className={`stab ${subTab==="part"?"on":""}`} onClick={()=>setSubTab("part")}>部品マスタ（{parts.length}）</button>
-            </div>
-            {subTab==="purchase" && [...purchases].reverse().map(pu=>{
-              const p=parts.find(p=>p.id===pu.partId);
-              const unitPriceWithTax = pu.unitPrice * 1.1; // 税込単価
-              const totalPrice = pu.qty * pu.unitPrice * 1.1; // 実購入額（税込み）
-              return (
-                <div className="rc" key={pu.id}>
-                  <div className="rc-top">
-                    <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {pu.date} · <i className="fal fa-box" style={{marginRight:3}}/>{pu.supplier}</div></div>
-                    <div>
-                      <div className="rc-amt">¥{fmtD(unitPriceWithTax)}/{p?.unit}（税込）</div>
-                      <div className="rc-qty">×{pu.qty} = ¥{fmt(totalPrice)}</div>
-                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",marginTop:4}} onClick={()=>openEditPurchase(pu)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
+            <div className="sec-title">素材加工</div>
+            {processings.length===0 && <div className="empty">加工記録はありません</div>}
+            {(()=>{
+              // 母材ごとにグループ化（親素材の親子関係でソート）
+              const sorted = [...processings].sort((a,b)=>b.date.localeCompare(a.date));
+              const groups = [];
+              const seen = new Map();
+              sorted.forEach(pr=>{
+                if(!seen.has(pr.inputPartId)){
+                  seen.set(pr.inputPartId, groups.length);
+                  groups.push({ inputPartId: pr.inputPartId, records: [] });
+                }
+                groups[seen.get(pr.inputPartId)].records.push(pr);
+              });
+              // 母材の parentId でソート（親素材を持つ母材を先に）
+              groups.sort((a,b)=>{
+                const pa = parts.find(p=>p.id===a.inputPartId);
+                const pb = parts.find(p=>p.id===b.inputPartId);
+                const nameA = (pa?.parentId?`0_${pa.parentId}_${pa.name}`:(`1_${pa?.name||""}`));
+                const nameB = (pb?.parentId?`0_${pb.parentId}_${pb.name}`:(`1_${pb?.name||""}`));
+                return nameA.localeCompare(nameB);
+              });
+              return groups.map(({inputPartId, records})=>{
+                const inPart = parts.find(p=>p.id===inputPartId);
+                const parentPart = inPart?.parentId ? parts.find(p=>p.id===inPart.parentId) : null;
+                return (
+                  <div key={inputPartId} style={{marginBottom:12}}>
+                    <div style={{fontSize:11,fontWeight:700,color:"var(--ac)",padding:"4px 0 6px",borderBottom:"1px solid var(--bd)",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
+                      {parentPart && <span style={{color:"var(--t2)"}}>{parentPart.name} →</span>}
+                      <span>{inPart?.name||"—"}</span>
+                      {inPart?.hinban&&<span style={{color:"var(--t2)",fontWeight:400}}>#{inPart.hinban}</span>}
+                      <span style={{color:"var(--t2)",fontWeight:400,marginLeft:"auto"}}>{records.length}件</span>
                     </div>
-                  </div>
-                  {pu.note&&<div className="rc-note"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{pu.note}</div>}
-                </div>
-              );
-            })}
-            {subTab==="disposal" && (
-              <>
-                {disposals.length===0 && <div className="empty">廃棄記録はありません</div>}
-                {[...disposals].reverse().map(d=>{
-                  const p=parts.find(p=>p.id===d.partId);
-                  return (
-                    <div className="dc" key={d.id}>
-                      <div className="rc-top">
-                        <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {d.date}</div></div>
-                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-                          <div className="rc-amt" style={{color:"var(--low)"}}>−{d.qty}{p?.unit}</div>
-                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditDisposal(d)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
-                        </div>
-                      </div>
-                      {d.reason&&<div className="dc-reason">理由: {d.reason}</div>}
-                    </div>
-                  );
-                })}
-              </>
-            )}
-            {subTab==="processing" && (
-              <>
-                {processings.length===0 && <div className="empty">加工記録はありません</div>}
-                {(()=>{
-                  // 母材ごとにグループ化（親素材の親子関係でソート）
-                  const sorted = [...processings].sort((a,b)=>b.date.localeCompare(a.date));
-                  const groups = [];
-                  const seen = new Map();
-                  sorted.forEach(pr=>{
-                    if(!seen.has(pr.inputPartId)){
-                      seen.set(pr.inputPartId, groups.length);
-                      groups.push({ inputPartId: pr.inputPartId, records: [] });
-                    }
-                    groups[seen.get(pr.inputPartId)].records.push(pr);
-                  });
-                  // 母材の parentId でソート（親素材を持つ母材を先に）
-                  groups.sort((a,b)=>{
-                    const pa = parts.find(p=>p.id===a.inputPartId);
-                    const pb = parts.find(p=>p.id===b.inputPartId);
-                    const nameA = (pa?.parentId?`0_${pa.parentId}_${pa.name}`:(`1_${pa?.name||""}`));
-                    const nameB = (pb?.parentId?`0_${pb.parentId}_${pb.name}`:(`1_${pb?.name||""}`));
-                    return nameA.localeCompare(nameB);
-                  });
-                  return groups.map(({inputPartId, records})=>{
-                    const inPart = parts.find(p=>p.id===inputPartId);
-                    const parentPart = inPart?.parentId ? parts.find(p=>p.id===inPart.parentId) : null;
-                    return (
-                      <div key={inputPartId} style={{marginBottom:12}}>
-                        <div style={{fontSize:11,fontWeight:700,color:"var(--ac)",padding:"4px 0 6px",borderBottom:"1px solid var(--bd)",marginBottom:6,display:"flex",alignItems:"center",gap:6}}>
-                          {parentPart && <span style={{color:"var(--t2)"}}>{parentPart.name} →</span>}
-                          <span>{inPart?.name||"—"}</span>
-                          {inPart?.hinban&&<span style={{color:"var(--t2)",fontWeight:400}}>#{inPart.hinban}</span>}
-                          <span style={{color:"var(--t2)",fontWeight:400,marginLeft:"auto"}}>{records.length}件</span>
-                        </div>
-                        {records.map(pr=>(
-                          <div className="rc" key={pr.id}>
-                            <div className="rc-top">
-                              <div>
-                                <div className="rc-name">{inPart?.name||"—"}<span style={{fontSize:11,color:"var(--t2)",marginLeft:6}}>×{pr.inputQty}{inPart?.unit}</span></div>
-                                <div className="rc-meta">{pr.date}</div>
-                              </div>
-                              <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",flexShrink:0}} onClick={()=>openEditProc(pr)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
-                            </div>
-                            <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
-                              {pr.outputs.map((o,i)=>{
-                                const op=parts.find(p=>p.id===o.partId);
-                                return <span key={i} style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--tx)"}}>{op?.name||"?"} ×{o.qty}</span>;
-                              })}
-                              {pr.lossQty>0&&<span style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--low)"}}>ロス {pr.lossQty}{inPart?.unit}</span>}
-                            </div>
-                            {pr.note&&<div className="rc-note"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{pr.note}</div>}
+                    {records.map(pr=>(
+                      <div className="rc" key={pr.id}>
+                        <div className="rc-top">
+                          <div>
+                            <div className="rc-name">{inPart?.name||"—"}<span style={{fontSize:11,color:"var(--t2)",marginLeft:6}}>×{pr.inputQty}{inPart?.unit}</span></div>
+                            <div className="rc-meta">{pr.date}</div>
                           </div>
-                        ))}
+                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",flexShrink:0}} onClick={()=>openEditProc(pr)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
+                        </div>
+                        <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
+                          {pr.outputs.map((o,i)=>{
+                            const op=parts.find(p=>p.id===o.partId);
+                            return <span key={i} style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--tx)"}}>{op?.name||"?"} ×{o.qty}</span>;
+                          })}
+                          {pr.lossQty>0&&<span style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--low)"}}>ロス {pr.lossQty}{inPart?.unit}</span>}
+                        </div>
+                        {pr.note&&<div className="rc-note"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{pr.note}</div>}
                       </div>
-                    );
-                  });
-                })()}
-              </>
-            )}
-            {subTab==="part" && (
-              <>
-                {parts.length===0 && <div className="empty">部品が登録されていません</div>}
-                {parts.map(p=>(
-                  <div className="pc" key={p.id} style={{cursor:"default"}}>
-                    <div style={{flex:1}}>
-                      <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
-                      <div className="pv">{p.variant}</div>
-                      <span className="pbadge">{p.cat}</span>
-                      {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
-                    </div>
-                    <div className="psb" style={{alignItems:"flex-end",gap:6}}>
-                      <div className="psu">{p.unit}</div>
-                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </>
-            )}
+                );
+              });
+            })()}
           </div>
         )}
 
@@ -1676,7 +1629,7 @@ export default function App() {
           {[
             { id:"dashboard", icon:"fal fa-home",       label:"HOME" },
             { id:"parts",     icon:"fal fa-boxes",      label:"部品在庫" },
-            { id:"records",   icon:"fal fa-truck",      label:"仕入・廃棄" },
+            { id:"records",   icon:"fal fa-scissors",   label:"素材加工" },
             { id:"prodstock", icon:"fal fa-gem",        label:"作品" },
             { id:"consign",   icon:"fal fa-store",      label:"委託" },
             { id:"sales",     icon:"fal fa-chart-line", label:"売上" },
@@ -1689,8 +1642,8 @@ export default function App() {
         </nav>
 
         {/* FAB */}
-        {tab==="parts"     && <button className="fab" onClick={()=>setModal("part")}><i className="fas fa-plus"/></button>}
-        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":subTab==="disposal"?"disposal":subTab==="processing"?"processing":"part")}><i className="fas fa-plus"/></button>}
+        {tab==="parts"     && <button className="fab" onClick={()=>{setPartsAddTab("purchase");setModal("parts_add");}}><i className="fas fa-plus"/></button>}
+        {tab==="records"   && <button className="fab" onClick={()=>setModal("processing")}><i className="fas fa-plus"/></button>}
         {tab==="sales"     && <button className="fab" onClick={()=>setModal("sale")}><i className="fas fa-plus"/></button>}
         {tab==="prodstock" && <button className="fab" onClick={()=>subTab2==="recipe"?setModal("recipe"):setModal("made")}><i className="fas fa-plus"/></button>}
         {tab==="consign"   && !selectedConsigneeId && <button className="fab" onClick={()=>setModal("consign")}><i className="fas fa-plus"/></button>}
@@ -2396,6 +2349,277 @@ export default function App() {
               <button className="btn" style={{marginTop:12}} onClick={saveChannel}>保存</button>
               <div className="div"/>
               <button className="btn btn-d" onClick={()=>deleteChannel(editingChannelId)}>このチャネルを削除</button>
+            </div>
+          </div>
+        )}
+
+        {/* ════ 部品在庫 ＋ モーダル（仕入 / マスター 2タブ） ════ */}
+        {modal==="parts_add" && (
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+            <div className="modal">
+              <div className="sub-tabs" style={{marginBottom:13}}>
+                <button className={`stab ${partsAddTab==="purchase"?"on":""}`} onClick={()=>setPartsAddTab("purchase")}>仕入</button>
+                <button className={`stab ${partsAddTab==="part"?"on":""}`} onClick={()=>setPartsAddTab("part")}>マスター</button>
+              </div>
+              {partsAddTab==="purchase" && (()=>{
+                // ── 仕入フォーム ──────────────────────────────────────
+                const filtCats = pfCat ? [pfCat] : partCats;
+                const filtParts = parts.filter(p=>p.type!=="part"&&(pfCat?p.cat===pfCat:true));
+                return (
+                  <>
+                    <div className="modal-title">仕入を記録</div>
+                    <div className="fr">
+                      <label className="fl">カテゴリで絞り込み</label>
+                      <div className="filter-row" style={{marginBottom:0}}>
+                        {partCats.map(c=><button key={c} className={`chip ${pfCat===c?"on":""}`} onClick={()=>setPfCat(prev=>prev===c?"":c)}>{c}</button>)}
+                      </div>
+                    </div>
+                    <div className="fr"><label className="fl">部品 *</label>
+                      <select className="fs" value={pf.partId} onChange={e=>setPf(f=>({...f,partId:e.target.value}))}>
+                        <option value="">選択してください</option>
+                        {filtParts.map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
+                      </select>
+                    </div>
+                    <div className="fr"><label className="fl">仕入日 *</label><input className="fi" type="date" value={pf.date} onChange={e=>setPf(f=>({...f,date:e.target.value}))}/></div>
+                    <div className="fr"><label className="fl">仕入先</label>
+                      {!showNewSupplier ? (
+                        <div style={{display:"flex",gap:6}}>
+                          <select className="fs" style={{flex:1}} value={pf.supplier} onChange={e=>setPf(f=>({...f,supplier:e.target.value}))}>
+                            <option value="">未選択</option>
+                            {suppliers.map(s=><option key={s} value={s}>{s}</option>)}
+                          </select>
+                          <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setShowNewSupplier(true)}>＋新規</button>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",gap:6}}>
+                          <input className="fi" placeholder="新しい仕入先名" value={pf.supplier} onChange={e=>setPf(f=>({...f,supplier:e.target.value}))}/>
+                          <button style={{flexShrink:0,padding:"0 10px",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setShowNewSupplier(false)}>戻る</button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="fr2">
+                      <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="例: 100" value={pf.qty} onChange={e=>setPf(f=>({...f,qty:e.target.value}))}/></div>
+                      <div className="fr"><label className="fl">実購入額（税込み）*</label><input className="fi" type="number" placeholder="例: 1980" value={pf.totalPrice} onChange={e=>setPf(f=>({...f,totalPrice:e.target.value}))}/></div>
+                    </div>
+                    <div className="fr"><label className="fl">メモ</label><input className="fi" placeholder="例: まとめ買い割引" value={pf.note} onChange={e=>setPf(f=>({...f,note:e.target.value}))}/></div>
+                    <div className="div"/>
+                    <button className="btn-p" onClick={savePurchase}>記録する</button>
+                    <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+                  </>
+                );
+              })()}
+              {partsAddTab==="part" && (()=>{
+                // ── 部品マスター登録フォーム ──────────────────────────
+                return (
+                  <>
+                    <div className="modal-title">部品を登録</div>
+                    <div className="modal-sub">登録後、仕入記録から在庫を追加できます</div>
+                    <div className="fr">
+                      <label className="fl">部品タイプ</label>
+                      <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                        {[
+                          {val:"",       label:"通常",   desc:"仕入れてそのまま使用"},
+                          {val:"material",label:"母材",  desc:"加工前の素材（布・紐など）"},
+                          {val:"part",   label:"中間材", desc:"母材から切り出した部品"},
+                        ].map(opt=>(
+                          <button key={opt.val} className={`chip ${partForm.type===opt.val?"on":""}`}
+                            onClick={()=>setPartForm(f=>({...f,type:opt.val,parentId:opt.val==="part"?f.parentId:""}))}
+                            title={opt.desc}>{opt.label}</button>
+                        ))}
+                      </div>
+                    </div>
+                    {partForm.type==="part" && (
+                      <div className="fr">
+                        <label className="fl">親の母材</label>
+                        <select className="fs" value={partForm.parentId} onChange={e=>{
+                          const pid = e.target.value;
+                          let hinban = partForm.hinban;
+                          if(pid){
+                            const parent = parts.find(p=>p.id===+pid);
+                            if(parent?.hinban){
+                              const children = parts.filter(p=>p.parentId===+pid);
+                              const maxNum = children.reduce((mx,c)=>{ const s=c.hinban?.slice(parent.hinban.length+1); const n=parseInt(s,10); return isNaN(n)?mx:Math.max(mx,n); },0);
+                              hinban = `${parent.hinban}-${String(maxNum+1).padStart(3,"0")}`;
+                            }
+                          }
+                          setPartForm(f=>({...f,parentId:pid,hinban}));
+                        }}>
+                          <option value="">選択してください</option>
+                          {parts.filter(p=>p.type==="material").map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div className="fr">
+                      <label className="fl">カテゴリ *</label>
+                      {!showNewCat ? (
+                        <div style={{display:"flex",gap:6}}>
+                          <select className="fs" style={{flex:1}} value={partForm.cat} onChange={e=>setPartForm(f=>({...f,cat:e.target.value}))}>
+                            {partCats.map(c=><option key={c} value={c}>{c}</option>)}
+                          </select>
+                          <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setShowNewCat(true)}>＋新規</button>
+                        </div>
+                      ) : (
+                        <div style={{display:"flex",gap:6}}>
+                          <input className="fi" placeholder="新しいカテゴリ名" value={newCatInput} onChange={e=>setNewCatInput(e.target.value)}/>
+                          <button style={{flexShrink:0,padding:"0 10px",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setShowNewCat(false)}>戻る</button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="fr2">
+                      <div className="fr"><label className="fl">品名 *</label><input className="fi" placeholder="例: Cカン" value={partForm.name} onChange={e=>setPartForm(f=>({...f,name:e.target.value}))}/></div>
+                      <div className="fr"><label className="fl">バリエーション</label><input className="fi" placeholder="例: ゴールド / 8mm" value={partForm.variant} onChange={e=>setPartForm(f=>({...f,variant:e.target.value}))}/></div>
+                    </div>
+                    <div className="fr2">
+                      <div className="fr"><label className="fl">単位</label><input className="fi" placeholder="例: 個" value={partForm.unit} onChange={e=>setPartForm(f=>({...f,unit:e.target.value}))}/></div>
+                      <div className="fr"><label className="fl">品番</label><input className="fi" placeholder="例: C-001" value={partForm.hinban} onChange={e=>setPartForm(f=>({...f,hinban:e.target.value}))}/></div>
+                    </div>
+                    <div className="fr"><label className="fl">最低在庫数</label><input className="fi" type="number" placeholder="例: 50" value={partForm.minStock} onChange={e=>setPartForm(f=>({...f,minStock:e.target.value}))}/></div>
+                    <div className="div"/>
+                    <button className="btn-p" onClick={addPart}>登録する</button>
+                    <button className="btn-c" onClick={()=>setModal(null)}>キャンセル</button>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* ════ 部品在庫 履歴参照モーダル ════ */}
+        {modal==="parts_history" && (
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+            <div className="modal">
+              <div className="modal-title">仕入・廃棄 履歴</div>
+              <div className="sub-tabs">
+                <button className={`stab ${historyTab==="purchase"?"on":""}`} onClick={()=>setHistoryTab("purchase")}>仕入記録（{purchases.length}）</button>
+                <button className={`stab ${historyTab==="disposal"?"on":""}`} onClick={()=>setHistoryTab("disposal")}>廃棄記録（{disposals.length}）</button>
+              </div>
+              {historyTab==="purchase" && (
+                <>
+                  {purchases.length===0 && <div className="empty">仕入記録はありません</div>}
+                  {[...purchases].reverse().map(pu=>{
+                    const p=parts.find(pt=>pt.id===pu.partId);
+                    const unitPriceWithTax = pu.unitPrice * 1.1;
+                    const totalPrice = pu.qty * pu.unitPrice * 1.1;
+                    return (
+                      <div className="rc" key={pu.id}>
+                        <div className="rc-top">
+                          <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {pu.date} · <i className="fal fa-box" style={{marginRight:3}}/>{pu.supplier}</div></div>
+                          <div>
+                            <div className="rc-amt">¥{fmtD(unitPriceWithTax)}/{p?.unit}（税込）</div>
+                            <div className="rc-qty">×{pu.qty} = ¥{fmt(totalPrice)}</div>
+                            <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",marginTop:4}} onClick={()=>openEditPurchase(pu)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
+                          </div>
+                        </div>
+                        {pu.note&&<div className="rc-note"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{pu.note}</div>}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              {historyTab==="disposal" && (
+                <>
+                  {disposals.length===0 && <div className="empty">廃棄記録はありません</div>}
+                  {[...disposals].reverse().map(d=>{
+                    const p=parts.find(pt=>pt.id===d.partId);
+                    return (
+                      <div className="dc" key={d.id}>
+                        <div className="rc-top">
+                          <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {d.date}</div></div>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                            <div className="rc-amt" style={{color:"var(--low)"}}>−{d.qty}{p?.unit}</div>
+                            <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditDisposal(d)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
+                          </div>
+                        </div>
+                        {d.reason&&<div className="dc-reason">理由: {d.reason}</div>}
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+              <div className="div"/>
+              <button className="btn-c" onClick={()=>setModal(null)}>閉じる</button>
+            </div>
+          </div>
+        )}
+
+        {/* ════ 管理設定モーダル ════ */}
+        {modal==="mgmt" && (
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
+            <div className="modal">
+              <div className="modal-title"><i className="fal fa-cog" style={{marginRight:8}}/>管理設定</div>
+              <div className="sub-tabs" style={{marginBottom:13}}>
+                <button className={`stab ${mgmtTab==="parts_master"?"on":""}`} onClick={()=>setMgmtTab("parts_master")}>部品マスター</button>
+                <button className={`stab ${mgmtTab==="category_setting"?"on":""}`} onClick={()=>setMgmtTab("category_setting")}>カテゴリ設定</button>
+              </div>
+
+              {/* ── 部品マスター ── */}
+              {mgmtTab==="parts_master" && (
+                <>
+                  <div style={{display:"flex",justifyContent:"flex-end",marginBottom:8}}>
+                    <button style={{fontSize:12,background:"var(--ac)",color:"#fff",border:"none",borderRadius:8,padding:"5px 12px",cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}}
+                      onClick={()=>{ setEditingPartId(null); setPartForm({cat:"金具",name:"",variant:"",unit:"個",hinban:"",minStock:"10",type:"",parentId:""}); setShowNewCat(false); setNewCatInput(""); setModal("part"); }}>
+                      <i className="fas fa-plus"/>部品を追加
+                    </button>
+                  </div>
+                  {parts.length===0 && <div className="empty">部品が登録されていません</div>}
+                  {parts.map(p=>(
+                    <div className="pc" key={p.id} style={{cursor:"default"}}>
+                      <div style={{flex:1}}>
+                        <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
+                        <div className="pv">{p.variant}</div>
+                        <span className="pbadge">{p.cat}</span>
+                        {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
+                      </div>
+                      <div className="psb" style={{alignItems:"flex-end",gap:6}}>
+                        <div className="psu">{p.unit}</div>
+                        <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* ── カテゴリ設定 ── */}
+              {mgmtTab==="category_setting" && (
+                <>
+                  {/* 部品カテゴリ */}
+                  <div className="sec-label">部品カテゴリ</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                    {partCatMaster.map(c=>(
+                      <div key={c} style={{display:"inline-flex",alignItems:"center",gap:2,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 10px",fontSize:11}}>
+                        <span>{c}</span>
+                        <button style={{background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:12,padding:"0 0 0 4px",lineHeight:1}} onClick={()=>setPartCatMaster(m=>m.filter(x=>x!==c))}><i className="fal fa-times"/></button>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:6,marginBottom:16}}>
+                    <input className="fi" placeholder="新規カテゴリ名" value={newPartCatInput} onChange={e=>setNewPartCatInput(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"){const v=newPartCatInput.trim();if(v&&!partCatMaster.includes(v)){setPartCatMaster(m=>[...m,v]);setNewPartCatInput("");}}}}/>
+                    <button style={{flexShrink:0,padding:"0 14px",border:"none",borderRadius:8,background:"var(--ac)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+                      onClick={()=>{const v=newPartCatInput.trim();if(v&&!partCatMaster.includes(v)){setPartCatMaster(m=>[...m,v]);setNewPartCatInput("");}}}>追加</button>
+                  </div>
+
+                  {/* 作品カテゴリ */}
+                  <div className="sec-label">作品カテゴリ</div>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:6,marginBottom:10}}>
+                    {productCatMaster.map(c=>(
+                      <div key={c} style={{display:"inline-flex",alignItems:"center",gap:2,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:20,padding:"3px 10px",fontSize:11}}>
+                        <span>{c}</span>
+                        <button style={{background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:12,padding:"0 0 0 4px",lineHeight:1}} onClick={()=>setProductCatMaster(m=>m.filter(x=>x!==c))}><i className="fal fa-times"/></button>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:6,marginBottom:8}}>
+                    <input className="fi" placeholder="新規カテゴリ名" value={newProductCatInput} onChange={e=>setNewProductCatInput(e.target.value)}
+                      onKeyDown={e=>{if(e.key==="Enter"){const v=newProductCatInput.trim();if(v&&!productCatMaster.includes(v)){setProductCatMaster(m=>[...m,v]);setNewProductCatInput("");}}}}/>
+                    <button style={{flexShrink:0,padding:"0 14px",border:"none",borderRadius:8,background:"var(--ac)",color:"#fff",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+                      onClick={()=>{const v=newProductCatInput.trim();if(v&&!productCatMaster.includes(v)){setProductCatMaster(m=>[...m,v]);setNewProductCatInput("");}}}>追加</button>
+                  </div>
+                </>
+              )}
+
+              <div className="div"/>
+              <button className="btn-c" onClick={()=>setModal(null)}>閉じる</button>
             </div>
           </div>
         )}
