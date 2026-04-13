@@ -1078,7 +1078,7 @@ export default function App() {
             <div className="sec-title">今月のサマリー <span style={{fontSize:12,color:"var(--t2)",fontWeight:400}}>{THIS_MONTH.replace("-","年")}月</span></div>
             {alerts.length>0 && (
               <div className="alert-box">
-                <div className="alert-ttl">⚠ 部品在庫アラート（{alerts.length}件）</div>
+                <div className="alert-ttl"><i className="fas fa-exclamation-triangle" style={{marginRight:6}}/>部品在庫アラート（{alerts.length}件）</div>
                 {alerts.slice(0,4).map(p=>{
                   const {stock}=partStockMap[p.id];
                   const isMiddle = p.type==="part";
@@ -1091,10 +1091,10 @@ export default function App() {
                       </span>
                       {isMiddle ? (
                         <button style={{flexShrink:0,fontSize:11,fontWeight:700,background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}
-                          onClick={()=>openStockCreate(p)}>在庫作成</button>
+                          onClick={()=>openStockCreate(p)}><i className="fal fa-cut" style={{marginRight:4}}/>在庫作成</button>
                       ) : (
                         <button style={{flexShrink:0,fontSize:11,fontWeight:700,background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}
-                          onClick={()=>openReplenish(p)}>在庫補充</button>
+                          onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>在庫補充</button>
                       )}
                     </div>
                   );
@@ -1187,8 +1187,8 @@ export default function App() {
                         {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
                         <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
                         {supMap.size>1
-                          ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}>📦{s}：¥{pr}</span>)}</div>
-                          : <div className="price-row">📦 {[...supMap.keys()][0]||"—"}</div>
+                          ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}><i className="fal fa-box" style={{marginRight:3}}/>{s}：¥{pr}</span>)}</div>
+                          : <div className="price-row"><i className="fal fa-box" style={{marginRight:4}}/>{[...supMap.keys()][0]||"—"}</div>
                         }
                         {p.type==="material" && totalBought>0 && (
                           <div style={{marginTop:6}}>
@@ -1198,7 +1198,7 @@ export default function App() {
                             <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{stock}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
                           </div>
                         )}
-                        <button style={{marginTop:6,background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}>✏ 編集</button>
+                        <button style={{marginTop:6,background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                       </div>
                       <div className="psb">
                         <div className={`psn ${st}`}>{stock}</div>
@@ -1248,7 +1248,7 @@ export default function App() {
                     <div className="prod-stk-right">
                       <div className="prod-stk-total">{totalAll}</div>
                       <div className="prod-stk-lbl">合計在庫（点）</div>
-                      <div className="prod-stk-toggle">{isOpen?"▲ 閉じる":"▼ 内訳"}</div>
+                      <div className="prod-stk-toggle">{isOpen?<><i className="fal fa-chevron-up" style={{marginRight:3}}/>閉じる</>:<><i className="fal fa-chevron-down" style={{marginRight:3}}/>内訳</>}</div>
                     </div>
                   </div>
                   {isOpen && (
@@ -1267,7 +1267,7 @@ export default function App() {
                         <div key={cn.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",
                           background:"var(--sf)",borderRadius:8,padding:"7px 10px",marginTop:7,
                           border:"1px solid var(--bd)"}}>
-                          <span style={{fontSize:11,color:"var(--ac)",fontWeight:700}}>📍 {cn.name}</span>
+                          <span style={{fontSize:11,color:"var(--ac)",fontWeight:700}}><i className="fal fa-map-marker-alt" style={{marginRight:4}}/>{cn.name}</span>
                           <span style={{fontSize:11}}><strong style={{fontFamily:"'DM Serif Display',serif",fontSize:17}}>{cs}</strong> 点（委託中）</span>
                         </div>
                       ))}
@@ -1296,7 +1296,7 @@ export default function App() {
                     <div className="recipe-cost">
                       <div className="recipe-total">¥{fmt(cost.total)}</div>
                       <div className="recipe-lbl">原価合計</div>
-                      <div className="recipe-toggle">{isOpen?"▲":"▼ 内訳"}</div>
+                      <div className="recipe-toggle">{isOpen?<i className="fal fa-chevron-up"/>:<><i className="fal fa-chevron-down" style={{marginRight:3}}/>内訳</>}</div>
                     </div>
                   </div>
                   {isOpen && (
@@ -1324,7 +1324,7 @@ export default function App() {
                       <div className="cost-row"><span>人件費</span><span>¥{fmt(cost.laborCost)}</span></div>
                       <div className="cost-div"/>
                       <div className="cost-total-row"><span>原価合計</span><span>¥{fmt(cost.total)}</span></div>
-                      <button style={{marginTop:10,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditRecipe(pr)}>✏ レシピを編集</button>
+                      <button style={{marginTop:10,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditRecipe(pr)}><i className="fal fa-pen" style={{marginRight:4}}/> レシピを編集</button>
                     </div>
                   )}
                 </div>
@@ -1350,14 +1350,14 @@ export default function App() {
                 <div className="prod-stk-card" style={{cursor:"pointer"}} key={cn.id} onClick={()=>setSelectedConsigneeId(cn.id)}>
                   <div className="prod-stk-header">
                     <div>
-                      <div className="prod-stk-name">📍 {cn.name}</div>
+                      <div className="prod-stk-name"><i className="fal fa-map-marker-alt" style={{marginRight:5}}/>{cn.name}</div>
                       {cn.address && <div className="prod-stk-desc">{cn.address}</div>}
-                      {cn.memo && <div className="prod-stk-desc" style={{color:"var(--ac)"}}>📝 {cn.memo}</div>}
+                      {cn.memo && <div className="prod-stk-desc" style={{color:"var(--ac)"}}><i className="fal fa-sticky-note" style={{marginRight:4}}/>{cn.memo}</div>}
                     </div>
                     <div className="prod-stk-right">
                       <div className="prod-stk-total">{totalStock}</div>
                       <div className="prod-stk-lbl">委託在庫（点）</div>
-                      <div className="prod-stk-toggle">▶ 詳細</div>
+                      <div className="prod-stk-toggle"><i className="fal fa-chevron-right" style={{marginRight:3}}/>詳細</div>
                     </div>
                   </div>
                 </div>
@@ -1383,11 +1383,11 @@ export default function App() {
               return (
                 <>
                   <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
-                    <button style={{background:"none",border:"none",fontSize:20,cursor:"pointer",padding:0}} onClick={()=>setSelectedConsigneeId(null)}>◀</button>
+                    <button style={{background:"none",border:"none",fontSize:20,cursor:"pointer",padding:0}} onClick={()=>setSelectedConsigneeId(null)}><i className="fal fa-chevron-left"/></button>
                     <div style={{flex:1}}>
-                      <div className="sec-title" style={{marginBottom:0}}>📍 {cn.name}</div>
+                      <div className="sec-title" style={{marginBottom:0}}><i className="fal fa-map-marker-alt" style={{marginRight:5}}/>{cn.name}</div>
                       {cn.address && <div className="prod-stk-desc">{cn.address}</div>}
-                      {cn.memo && <div className="prod-stk-desc" style={{color:"var(--ac)"}}>📝 {cn.memo}</div>}
+                      {cn.memo && <div className="prod-stk-desc" style={{color:"var(--ac)"}}><i className="fal fa-sticky-note" style={{marginRight:4}}/>{cn.memo}</div>}
                     </div>
                   </div>
 
@@ -1409,7 +1409,7 @@ export default function App() {
                               )}
                               {cs>0 && (
                                 <button style={{fontSize:11,fontWeight:700,background:"none",color:"var(--low)",border:"1px solid var(--low)",borderRadius:6,padding:"4px 10px",cursor:"pointer",fontFamily:"inherit"}}
-                                  onClick={()=>openConsignEnd(pr,cn.id,cs)}>委託終了</button>
+                                  onClick={()=>openConsignEnd(pr,cn.id,cs)}><i className="fal fa-flag-checkered" style={{marginRight:4}}/>委託終了</button>
                               )}
                               <span style={{fontFamily:"'DM Serif Display',serif",fontSize:20}}>{cs}<span style={{fontSize:9,fontWeight:400,color:"var(--t2)",marginLeft:3}}>点</span></span>
                             </div>
@@ -1449,7 +1449,7 @@ export default function App() {
                                 <div style={{fontSize:13,fontWeight:700}}>
                                   {r.type==="deliver"?"＋":r.type==="return"?"＋":"−"}{r.qty}点
                                 </div>
-                                <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:11,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditConsign(r)}>✏ 編集</button>
+                                <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:11,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditConsign(r)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                               </div>
                             </div>
                             {(isSale||isDeliver) && r.salePrice>0 && (
@@ -1459,7 +1459,7 @@ export default function App() {
                                 {isSale && <span style={{color:"var(--ok)",fontWeight:700}}>入金 ¥{fmt(Math.round(r.salePrice*(1-r.feeRate/100))*r.qty)}</span>}
                               </div>
                             )}
-                            {r.memo && <div style={{fontSize:9,color:"var(--t2)",marginTop:4}}>📝 {r.memo}</div>}
+                            {r.memo && <div style={{fontSize:9,color:"var(--t2)",marginTop:4}}><i className="fal fa-sticky-note" style={{marginRight:4}}/>{r.memo}</div>}
                           </div>
                         );
                       })
@@ -1488,14 +1488,14 @@ export default function App() {
               return (
                 <div className="rc" key={pu.id}>
                   <div className="rc-top">
-                    <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {pu.date} · 📦{pu.supplier}</div></div>
+                    <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {pu.date} · <i className="fal fa-box" style={{marginRight:3}}/>{pu.supplier}</div></div>
                     <div>
                       <div className="rc-amt">¥{fmtD(unitPriceWithTax)}/{p?.unit}（税込）</div>
                       <div className="rc-qty">×{pu.qty} = ¥{fmt(totalPrice)}</div>
-                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",marginTop:4}} onClick={()=>openEditPurchase(pu)}>✏ 編集</button>
+                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",marginTop:4}} onClick={()=>openEditPurchase(pu)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                     </div>
                   </div>
-                  {pu.note&&<div className="rc-note">📝 {pu.note}</div>}
+                  {pu.note&&<div className="rc-note"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{pu.note}</div>}
                 </div>
               );
             })}
@@ -1510,7 +1510,7 @@ export default function App() {
                         <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {d.date}</div></div>
                         <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
                           <div className="rc-amt" style={{color:"var(--low)"}}>−{d.qty}{p?.unit}</div>
-                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditDisposal(d)}>✏ 編集</button>
+                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditDisposal(d)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                         </div>
                       </div>
                       {d.reason&&<div className="dc-reason">理由: {d.reason}</div>}
@@ -1560,7 +1560,7 @@ export default function App() {
                                 <div className="rc-name">{inPart?.name||"—"}<span style={{fontSize:11,color:"var(--t2)",marginLeft:6}}>×{pr.inputQty}{inPart?.unit}</span></div>
                                 <div className="rc-meta">{pr.date}</div>
                               </div>
-                              <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",flexShrink:0}} onClick={()=>openEditProc(pr)}>✏ 編集</button>
+                              <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",flexShrink:0}} onClick={()=>openEditProc(pr)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                             </div>
                             <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
                               {pr.outputs.map((o,i)=>{
@@ -1569,7 +1569,7 @@ export default function App() {
                               })}
                               {pr.lossQty>0&&<span style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--low)"}}>ロス {pr.lossQty}{inPart?.unit}</span>}
                             </div>
-                            {pr.note&&<div className="rc-note">📝 {pr.note}</div>}
+                            {pr.note&&<div className="rc-note"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{pr.note}</div>}
                           </div>
                         ))}
                       </div>
@@ -1591,7 +1591,7 @@ export default function App() {
                     </div>
                     <div className="psb" style={{alignItems:"flex-end",gap:6}}>
                       <div className="psu">{p.unit}</div>
-                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}>✏ 編集</button>
+                      <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                     </div>
                   </div>
                 ))}
@@ -1630,8 +1630,8 @@ export default function App() {
               return (
                 <div style={{fontSize:11,color:"var(--ac)",fontWeight:700,marginBottom:8,display:"flex",alignItems:"center",gap:6}}>
                   <span>{selectedChannel} · {displayedSales.length}件</span>
-                  {chObj && <button style={{fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>openEditChannel(chObj)}>✏ 編集</button>}
-                  <button style={{fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>setSelectedChannel(null)}>✕ 解除</button>
+                  {chObj && <button style={{fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>openEditChannel(chObj)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>}
+                  <button style={{fontSize:10,background:"none",border:"1px solid var(--bd)",borderRadius:5,color:"var(--t2)",cursor:"pointer",padding:"1px 7px",fontFamily:"inherit"}} onClick={()=>setSelectedChannel(null)}><i className="fal fa-times" style={{marginRight:3}}/>解除</button>
                 </div>
               );
             })()}
@@ -1642,13 +1642,13 @@ export default function App() {
                 <div className="sale-card" key={s.id}>
                   <div className="sale-main" onClick={()=>tog(`s${s.id}`)}>
                     <div>
-                      <div className="sale-name"><span className="sale-dot" style={{background:chColMap[s.channel]||"var(--t2)"}}/>{prodName(s.productId)}{s.consignRecordId&&<span style={{fontSize:9,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 5px",marginLeft:5,color:"var(--t2)"}}>📍委託</span>}</div>
+                      <div className="sale-name"><span className="sale-dot" style={{background:chColMap[s.channel]||"var(--t2)"}}/>{prodName(s.productId)}{s.consignRecordId&&<span style={{fontSize:9,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 5px",marginLeft:5,color:"var(--t2)"}}><i className="fal fa-map-marker-alt" style={{marginRight:2}}/>委託</span>}</div>
                       <div className="sale-meta">{s.date} · {s.channel} · {s.qty}点</div>
                     </div>
                     <div>
                       <div className="sale-rev">¥{fmt(calc.revenue)}</div>
                       <div className="sale-margin" style={{color:calc.profit>=0?"var(--ok)":"var(--low)"}}>利益 ¥{fmt(calc.profit)}（{calc.profitRate}%）</div>
-                      <div className="sale-toggle">{isOpen?"▲":"▼ 明細"}</div>
+                      <div className="sale-toggle">{isOpen?<i className="fal fa-chevron-up"/>:<><i className="fal fa-chevron-down"/> 明細</>}</div>
                     </div>
                   </div>
                   {isOpen && (
@@ -1661,8 +1661,8 @@ export default function App() {
                       <div className="sd-row"><span className="sd-lbl">送料実費</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.shipping)}</span></div>
                       <div className="sd-div"/>
                       <div className="sd-total"><span>純利益</span><span style={{color:calc.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(calc.profit)}（{calc.profitRate}%）</span></div>
-                      {s.memo&&<div className="sd-memo">📝 {s.memo}</div>}
-                      <button style={{marginTop:8,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditSale(s)}>✏ 編集</button>
+                      {s.memo&&<div className="sd-memo"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{s.memo}</div>}
+                      <button style={{marginTop:8,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditSale(s)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
                     </div>
                   )}
                 </div>
@@ -1674,26 +1674,27 @@ export default function App() {
         {/* ════ Navigation ════ */}
         <nav className="nav">
           {[
-            { id:"dashboard", icon:"◈", label:"HOME" },
-            { id:"parts",     icon:"⬡", label:"部品在庫" },
-            { id:"records",   icon:"◎", label:"仕入・廃棄" },
-            { id:"prodstock", icon:"◻", label:"完成品" },
-            { id:"consign",   icon:"📍", label:"委託" },
-            { id:"sales",     icon:"◉", label:"売上" },
+            { id:"dashboard", icon:"fal fa-home",       label:"HOME" },
+            { id:"parts",     icon:"fal fa-boxes",      label:"部品在庫" },
+            { id:"records",   icon:"fal fa-truck",      label:"仕入・廃棄" },
+            { id:"prodstock", icon:"fal fa-gem",        label:"完成品" },
+            { id:"consign",   icon:"fal fa-store",      label:"委託" },
+            { id:"sales",     icon:"fal fa-chart-line", label:"売上" },
           ].map(t=>(
             <button key={t.id} className={`nb ${tab===t.id?"on":""}`} onClick={()=>setTab(t.id)}>
-              <span className="ni">{t.icon}</span>{t.label}
+              <i className={`ni ${t.icon}`}/>
+              {t.label}
             </button>
           ))}
         </nav>
 
         {/* FAB */}
-        {tab==="parts"     && <button className="fab" onClick={()=>setModal("part")}>＋</button>}
-        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":subTab==="disposal"?"disposal":subTab==="processing"?"processing":"part")}>＋</button>}
-        {tab==="sales"     && <button className="fab" onClick={()=>setModal("sale")}>＋</button>}
-        {tab==="prodstock" && <button className="fab" onClick={()=>subTab2==="recipe"?setModal("recipe"):setModal("made")}>＋</button>}
-        {tab==="consign"   && !selectedConsigneeId && <button className="fab" onClick={()=>setModal("consign")}>＋</button>}
-        {tab==="consign"   && selectedConsigneeId && <button className="fab" onClick={()=>{setCf(f=>({...f,consigneeId:String(selectedConsigneeId)}));setModal("consign");}}>＋</button>}
+        {tab==="parts"     && <button className="fab" onClick={()=>setModal("part")}><i className="fas fa-plus"/></button>}
+        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":subTab==="disposal"?"disposal":subTab==="processing"?"processing":"part")}><i className="fas fa-plus"/></button>}
+        {tab==="sales"     && <button className="fab" onClick={()=>setModal("sale")}><i className="fas fa-plus"/></button>}
+        {tab==="prodstock" && <button className="fab" onClick={()=>subTab2==="recipe"?setModal("recipe"):setModal("made")}><i className="fas fa-plus"/></button>}
+        {tab==="consign"   && !selectedConsigneeId && <button className="fab" onClick={()=>setModal("consign")}><i className="fas fa-plus"/></button>}
+        {tab==="consign"   && selectedConsigneeId && <button className="fab" onClick={()=>{setCf(f=>({...f,consigneeId:String(selectedConsigneeId)}));setModal("consign");}}><i className="fas fa-plus"/></button>}
 
 
         {/* ════ 部品マスタ登録・編集モーダル ════ */}
@@ -1952,7 +1953,7 @@ export default function App() {
                   <span style={{margin:"0 6px",color:"var(--t2)"}}>→</span>
                   <span style={{fontWeight:700,color:procStockPreview.insufficient?"var(--low)":"var(--ok)"}}>
                     使用後 {Math.round(procStockPreview.after*1000)/1000}{procStockPreview.unit}
-                    {procStockPreview.insufficient&&" ⚠ 在庫不足"}
+                    {procStockPreview.insufficient&&<> <i className="fas fa-exclamation-triangle" style={{marginLeft:4}}/>在庫不足</>}
                   </span>
                 </div>
               )}
@@ -1978,7 +1979,7 @@ export default function App() {
                         })()}
                       </select>
                       <input className="fi" type="number" placeholder="数量" style={{flex:1,minWidth:0}} value={out.qty} onChange={e=>setProcForm(f=>({...f,outputs:f.outputs.map((o,j)=>j===i?{...o,qty:e.target.value}:o)}))}/>
-                      {procForm.outputs.length>1&&<button style={{flexShrink:0,padding:"4px 8px",border:"1px solid var(--bd)",borderRadius:6,background:"none",color:"var(--low)",cursor:"pointer",fontSize:13}} onClick={()=>setProcForm(f=>({...f,outputs:f.outputs.filter((_,j)=>j!==i)}))}>✕</button>}
+                      {procForm.outputs.length>1&&<button style={{flexShrink:0,padding:"4px 8px",border:"1px solid var(--bd)",borderRadius:6,background:"none",color:"var(--low)",cursor:"pointer",fontSize:13}} onClick={()=>setProcForm(f=>({...f,outputs:f.outputs.filter((_,j)=>j!==i)}))}><i className="fal fa-times"/></button>}
                     </div>
                   ))}
                   <button style={{width:"100%",padding:"6px 0",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
@@ -2061,7 +2062,7 @@ export default function App() {
                     </select>
                     <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={ep.qty} onChange={e=>setMf(f=>({...f,extraParts:f.extraParts.map((r,j)=>j===i?{...r,qty:e.target.value}:r)}))}/>
                     {ep.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+ep.partId)?.unit}</span>}
-                    <button className="ing-del" onClick={()=>setMf(f=>({...f,extraParts:f.extraParts.filter((_,j)=>j!==i)}))}>✕</button>
+                    <button className="ing-del" onClick={()=>setMf(f=>({...f,extraParts:f.extraParts.filter((_,j)=>j!==i)}))}><i className="fal fa-times"/></button>
                   </div>
                 ))}
                 <button className="add-row-btn" onClick={()=>setMf(f=>({...f,extraParts:[...f.extraParts,{partId:"",qty:""}]}))}>＋ 部品を追加</button>
@@ -2077,7 +2078,7 @@ export default function App() {
                     </select>
                     <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={lp.qty} onChange={e=>setMf(f=>({...f,lossParts:f.lossParts.map((r,j)=>j===i?{...r,qty:e.target.value}:r)}))}/>
                     {lp.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+lp.partId)?.unit}</span>}
-                    <button className="ing-del" onClick={()=>setMf(f=>({...f,lossParts:f.lossParts.filter((_,j)=>j!==i)}))}>✕</button>
+                    <button className="ing-del" onClick={()=>setMf(f=>({...f,lossParts:f.lossParts.filter((_,j)=>j!==i)}))}><i className="fal fa-times"/></button>
                   </div>
                 ))}
                 <button className="add-row-btn" onClick={()=>setMf(f=>({...f,lossParts:[...f.lossParts,{partId:"",qty:""}]}))}>＋ 部品を追加</button>
@@ -2170,7 +2171,7 @@ export default function App() {
                 const isConsign = editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId;
                 return isConsign ? (
                   <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:12,color:"var(--t2)"}}>
-                    📍 委託連動売上 — 商品・チャネルは委託記録から引き継がれます
+                    <i className="fal fa-map-marker-alt" style={{marginRight:5}}/>委託連動売上 — 商品・チャネルは委託記録から引き継がれます
                     <div style={{marginTop:4,fontWeight:700,color:"var(--tx)"}}>{prodName(+sf.productId)} · {sf.channel}</div>
                   </div>
                 ) : (
@@ -2280,7 +2281,7 @@ export default function App() {
                   </div>
                 )}
                 {rf.cat && <div style={{fontSize:11,color:"var(--ac)",marginTop:4}}>選択中: <strong>{rf.cat}</strong>
-                  <button style={{marginLeft:6,background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:11,padding:0}} onClick={()=>setRf(f=>({...f,cat:""}))}>✕ 解除</button>
+                  <button style={{marginLeft:6,background:"none",border:"none",color:"var(--t2)",cursor:"pointer",fontSize:11,padding:0}} onClick={()=>setRf(f=>({...f,cat:""}))}><i className="fal fa-times" style={{marginRight:3}}/>解除</button>
                 </div>}
               </div>
               <div className="fr"><label className="fl">商品名 *</label><input className="fi" placeholder="例: パールピアス" value={rf.name} onChange={e=>setRf(f=>({...f,name:e.target.value}))}/></div>
@@ -2296,7 +2297,7 @@ export default function App() {
                   </select>
                   <input className="fi" type="number" placeholder="数量" style={{width:70,flex:"none"}} value={ing.qty} onChange={e=>updateIng(i,"qty",e.target.value)}/>
                   {ing.partId && <span style={{fontSize:10,color:"var(--t2)",whiteSpace:"nowrap"}}>{parts.find(p=>p.id===+ing.partId)?.unit}</span>}
-                  {rf.ingredients.length>1 && <button className="ing-del" onClick={()=>removeIngRow(i)}>✕</button>}
+                  {rf.ingredients.length>1 && <button className="ing-del" onClick={()=>removeIngRow(i)}><i className="fal fa-times"/></button>}
                 </div>
               ))}
               <button className="add-ing-btn" onClick={addIngRow}>＋ 部品を追加</button>
@@ -2349,7 +2350,7 @@ export default function App() {
           return (
             <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
               <div className="modal">
-                <div className="modal-title">委託終了</div>
+                <div className="modal-title"><i className="fal fa-flag-checkered" style={{marginRight:8}}/>委託終了</div>
                 <div className="modal-sub">{pr?.name} — {cn?.name}</div>
                 <div style={{display:"flex",gap:8,marginBottom:12}}>
                   {[{val:"return",label:"返品",color:"var(--warn)"},{val:"loss",label:"廃棄ロス",color:"var(--low)"}].map(opt=>(

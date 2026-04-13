@@ -220,6 +220,64 @@ partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
 - 見出し・数値: `DM Serif Display`（Google Fonts）
 - 本文・UI: `Zen Kaku Gothic New`（Google Fonts）
 
+### アイコン：FontAwesome Pro 5.15
+
+FontAwesome Pro 5.15のファイル一式をプロジェクトに同梱して使う。CDNは使わない。
+
+**ファイル配置**
+```
+public/
+└── fontawesome/
+    ├── css/
+    │   └── all.min.css
+    └── webfonts/
+        ├── fa-solid-900.woff2
+        ├── fa-regular-400.woff2
+        ├── fa-light-300.woff2
+        └── ... （その他のwebfontsファイル）
+```
+
+**index.htmlでの読み込み**
+```html
+<!-- index.html の <head> 内 -->
+<link rel="stylesheet" href="/fontawesome/css/all.min.css">
+```
+
+**使い方（JSX内）**
+```jsx
+<i className="fas fa-box" />   // solid
+<i className="far fa-box" />   // regular
+<i className="fal fa-box" />   // light（Pro限定）
+```
+
+**スタイルの使い分け方針**
+- `fas`（solid）: アクションボタン・FAB・重要な操作
+- `fal`（light）: ナビアイコン・カード内の装飾
+- `far`（regular）: 中間的な用途
+
+**主要アイコン対応表**
+| 用途 | アイコン |
+|------|---------|
+| ダッシュボード（HOME） | `fal fa-home` |
+| 部品在庫 | `fal fa-boxes` |
+| 完成品 | `fal fa-gem` |
+| 仕入・廃棄 | `fal fa-truck` |
+| 委託 | `fal fa-store` |
+| 売上 | `fal fa-chart-line` |
+| ＋追加（FAB） | `fas fa-plus` |
+| 編集 | `fal fa-pen` |
+| 削除 | `fal fa-trash` |
+| 閉じる・キャンセル | `fal fa-times` |
+| 展開（▼） | `fal fa-chevron-down` |
+| 折りたたみ（▲） | `fal fa-chevron-up` |
+| 在庫アラート | `fas fa-exclamation-triangle` |
+| 在庫補充 | `fal fa-cart-plus` |
+| 母材 | `fal fa-layer-group` |
+| 中間材 | `fal fa-cut` |
+| 加工記録 | `fal fa-scissors` |
+| 委託終了 | `fal fa-flag-checkered` |
+| メモ | `fal fa-sticky-note` |
+
 ### 部品マスタの親子関係（母材 ↔ 中間材）
 
 - `type:"part"`（中間材）に `parentId` を設定すると、親の母材と連携
@@ -364,5 +422,4 @@ npm run preview  # ビルド結果をローカルで確認
 - 制作記録の編集・削除（現状は追加のみ）
 
 ### インフラ面（将来）
-- **GitHub Actions → Xserver 自動デプロイ**：SSH+SCP方式で構築予定。Secretsは `XSERVER_HOST` / `XSERVER_USER` / `XSERVER_KEY_B64` / `XSERVER_REMOTE_PATH` を使う
 - **Supabase移行**：現状LocalStorageのみ。複数端末同期・データ永続化のためSupabase（PostgreSQL）へ移行予定。移行時は `useLS` フックをSupabase APIクライアントに差し替える形を想定
