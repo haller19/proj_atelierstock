@@ -50,14 +50,25 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 
 ```js
 // 部品マスタ
-{ id, cat, name, variant, unit, hinban, minStock }
+{ id, cat, name, variant, unit, hinban, minStock, type }
 // minStock: 最低在庫数（未設定時は MIN_STOCK[id] || 10 にフォールバック）
+// type: "material"（原材料・仕入れ単位）| "part"（加工済み部品）| undefined（通常の部品）
+// 例: "A布 1m" は type:"material"、"A布 1cm角" は type:"part"
 
 // 仕入記録
 { id, partId, date, supplier, qty, unitPrice, note }
 
 // 部品廃棄記録
 { id, partId, date, qty, reason }
+
+// 加工記録（原材料 → 加工済み部品への変換）
+{ id, date, inputPartId, inputQty, outputs:[{partId, qty}], lossQty, note }
+// inputPartId: 原材料の部品ID（type:"material" の部品）
+// inputQty:    使用した原材料の量（原材料の unit 基準）
+// outputs:     切り出し後の部品IDと生成数量の配列
+// lossQty:     廃棄・端切れの量（inputPartId と同じ単位）
+// note:        メモ
+// 例: A布 0.5m → 1cm角×100枚 + 2cm角×25枚、ロス残り0.05m廃棄
 
 // 部品使用記録（完成品制作時に生成）
 { id, madeId, partId, date, qty, type }
@@ -92,6 +103,7 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 | `as_parts` | 部品マスタ |
 | `as_purchases` | 仕入記録 |
 | `as_disposals` | 部品廃棄記録 |
+| `as_processings` | 加工記録 |
 | `as_part_usages` | 部品使用記録（制作時） |
 | `as_products` | 完成品マスタ |
 | `as_made` | 制作記録 |
@@ -106,10 +118,18 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 
 ### 部品在庫
 ```
+// 原材料（type:"material"）
+原材料在庫 = 仕入累計 - 加工記録のinputQty累計 - 廃棄累計
+
+// 加工済み部品（type:"part"）
+加工済み部品在庫 = 加工記録のoutputQty累計 - 制作時使用累計 - 廃棄累計
+
+// 通常の部品（type:undefined）
 部品在庫 = 仕入累計 - 廃棄累計 - 制作時使用累計
-加重平均単価 = 仕入総額 / 仕入総数量
+
+加重平均単価 = 仕入総額 / 仕入総数量（原材料・通常部品のみ。加工済み部品は原材料の加重平均単価を按分）
 ```
-→ `calcPartStock(partId, purchases, disposals, partUsages=[])`
+→ `calcPartStock(partId, purchases, disposals, partUsages=[], processings=[])`
 
 ### 最低在庫数の解決
 ```
@@ -152,7 +172,7 @@ partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
 | `dashboard` | HOME | 今月KPI（クリックで売上タブへ遷移）・チャネル別売上棒グラフ（クリックでフィルター遷移）・在庫アラート |
 | `parts` | 部品在庫 | 部品一覧（加重平均単価・仕入先・在庫ステータス）、編集・＋で部品登録 |
 | `prodstock` | 完成品 | サブタブ「在庫」「レシピ・原価」、レシピ編集・削除、＋で制作記録またはレシピ登録 |
-| `records` | 仕入・廃棄 | サブタブ「仕入記録」「廃棄記録」「部品マスタ」、各記録の編集・削除 |
+| `records` | 仕入・廃棄 | サブタブ「仕入記録」「廃棄記録」**「加工記録」**「部品マスタ」、各記録の編集・削除 |
 | `consign` | 委託 | 委託先ごとの記録履歴・商品別在庫サマリ、委託記録の編集・削除、売上計上ボタン |
 | `sales` | 売上 | 年度セレクト＋チャネルフィルター、売上記録の編集・削除、チャネルの編集・削除 |
 
@@ -204,6 +224,13 @@ INIT_CHANNELS = [
 ]
 CH_PALETTE = ["#e8847a","#7ab5e8",...]  // チャネル追加時の自動カラー割り当て
 
+// 部品タイプ
+// type:"material" → 原材料（布・紐など仕入れ単位のまま保管するもの）
+//                   在庫計算: 仕入累計 - 加工記録inputQty累計 - 廃棄累計
+// type:"part"     → 加工済み部品（切り出し後のサイズ単位で管理するもの）
+//                   在庫計算: 加工記録outputQty累計 - 制作時使用累計 - 廃棄累計
+// type:undefined  → 通常の部品（従来通り。仕入れ→そのまま使用）
+
 // 部品の最低在庫数（初期10件分のフォールバック用ハードコード）
 // 新規登録部品は part.minStock フィールドで個別管理
 MIN_STOCK = { 1:50, 2:50, 3:100, 4:30, 5:5, 6:10, 7:80, 8:20, 9:100, 10:50 }
@@ -235,6 +262,7 @@ npm run preview  # ビルド結果をローカルで確認
 - データのエクスポート・バックアップ機能（JSON出力など）
 - 月次レポートの期間切り替え（ダッシュボードは現在月固定）
 - 制作記録の編集・削除（現状は追加のみ）
+- **加工記録の実装**：`as_processings` の追加、仕入・廃棄タブに「加工」サブタブ、`calcPartStock` の拡張（原材料・加工済み部品の在庫計算）、部品登録モーダルに `type` フィールド追加
 
 ### インフラ面（将来）
 - **GitHub Actions → Xserver 自動デプロイ**：SSH+SCP方式で構築予定。Secretsは `XSERVER_HOST` / `XSERVER_USER` / `XSERVER_KEY_B64` / `XSERVER_REMOTE_PATH` を使う

@@ -42,6 +42,8 @@ const INIT_DISPOSALS = [
   { id:2, partId:8, date:"2025-03-22", qty:3,  reason:"割れ・破損" },
 ];
 
+const INIT_PROCESSINGS = [];
+
 // 完成品マスタ（レシピ）
 const INIT_PRODUCTS = [
   { id:1, name:"パールピアス",           desc:"淡水パール × Cカン × ピアスポスト",
@@ -116,13 +118,50 @@ const fmt  = n => Math.round(Number(n)).toLocaleString("ja-JP");
 const fmtD = n => Number(n).toFixed(1);
 const pct  = (a,b) => b===0?0:Math.round((a/b)*100);
 
-function calcPartStock(partId, purchases, disposals, partUsages=[]) {
-  const buys  = purchases.filter(p=>p.partId===partId);
-  const disps = disposals.filter(d=>d.partId===partId);
-  const usages = partUsages.filter(u=>u.partId===partId);
+function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined) {
+  const disps   = disposals.filter(d=>d.partId===partId);
+  const dispQty = disps.reduce((s,d)=>s+d.qty,0);
+
+  if(type==="material") {
+    // 原材料: 仕入累計 - 加工で使った量 - 廃棄累計
+    const buys    = purchases.filter(p=>p.partId===partId);
+    const totalQty = buys.reduce((s,p)=>s+p.qty,0);
+    const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
+    const avgPrice = totalQty>0 ? totalAmt/totalQty : 0;
+    const usedInProc = processings.filter(pr=>pr.inputPartId===partId).reduce((s,pr)=>s+pr.inputQty,0);
+    const supMap = new Map();
+    buys.forEach(p=>supMap.set(p.supplier,p.unitPrice));
+    return { stock: totalQty-usedInProc-dispQty, avgPrice, supMap };
+  }
+
+  if(type==="part") {
+    // 加工済み部品: 加工記録output累計 - 制作時使用累計 - 廃棄累計
+    const usages  = partUsages.filter(u=>u.partId===partId);
+    const usedQty = usages.reduce((s,u)=>s+u.qty,0);
+    let totalOutputQty = 0;
+    let totalCost = 0;
+    processings.forEach(pr=>{
+      const out = pr.outputs.find(o=>o.partId===partId);
+      if(!out) return;
+      totalOutputQty += out.qty;
+      // 入力材料の加重平均単価を計算して按分
+      const inputBuys   = purchases.filter(p=>p.partId===pr.inputPartId);
+      const inputTotQty = inputBuys.reduce((s,p)=>s+p.qty,0);
+      const inputTotAmt = inputBuys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
+      const inputAvg    = inputTotQty>0 ? inputTotAmt/inputTotQty : 0;
+      const allOutQty   = pr.outputs.reduce((s,o)=>s+o.qty,0);
+      const costPerUnit = allOutQty>0 ? (pr.inputQty*inputAvg)/allOutQty : 0;
+      totalCost += out.qty * costPerUnit;
+    });
+    const avgPrice = totalOutputQty>0 ? totalCost/totalOutputQty : 0;
+    return { stock: totalOutputQty-usedQty-dispQty, avgPrice, supMap:new Map() };
+  }
+
+  // 通常部品（type:undefined）: 仕入累計 - 廃棄累計 - 制作時使用累計
+  const buys    = purchases.filter(p=>p.partId===partId);
+  const usages  = partUsages.filter(u=>u.partId===partId);
   const totalQty = buys.reduce((s,p)=>s+p.qty,0);
   const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
-  const dispQty  = disps.reduce((s,d)=>s+d.qty,0);
   const usedQty  = usages.reduce((s,u)=>s+u.qty,0);
   const avgPrice = totalQty>0 ? totalAmt/totalQty : 0;
   const supMap   = new Map();
@@ -408,6 +447,7 @@ export default function App() {
   const [sales,          setSales]          = useLS("as_sales",           INIT_SALES);
   const [channels,       setChannels]       = useLS("as_channels",        INIT_CHANNELS);
   const [partUsages,     setPartUsages]     = useLS("as_part_usages",     []);
+  const [processings,    setProcessings]    = useLS("as_processings",     INIT_PROCESSINGS);
 
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
@@ -440,9 +480,9 @@ export default function App() {
   // ── 計算 ──────────────────────────────────────────────────────
   const partStockMap = useMemo(()=>{
     const m={};
-    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages); });
+    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages,processings,p.type); });
     return m;
-  },[parts,purchases,disposals,partUsages]);
+  },[parts,purchases,disposals,partUsages,processings]);
 
   const productCostMap = useMemo(()=>{
     const m={};
@@ -828,7 +868,7 @@ export default function App() {
   },[purchases]);
 
   // ── 部品マスタ追加・編集 ────────────────────────────────────────────
-  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10" });
+  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", type:"" });
   const [newCatInput,   setNewCatInput]   = useState("");   // カテゴリ新規入力欄
   const [showNewCat,    setShowNewCat]    = useState(false);
   const [editingPartId, setEditingPartId] = useState(null); // null=新規, id=編集中
@@ -837,7 +877,7 @@ export default function App() {
   const [showNewSupplier, setShowNewSupplier] = useState(false);
 
   const openEditPart = (p) => {
-    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban, minStock: String(p.minStock ?? MIN_STOCK[p.id] ?? 10) });
+    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban, minStock: String(p.minStock ?? MIN_STOCK[p.id] ?? 10), type: p.type ?? "" });
     setEditingPartId(p.id);
     setShowNewCat(false);
     setNewCatInput("");
@@ -855,17 +895,69 @@ export default function App() {
     const cat = showNewCat ? newCatInput.trim() : partForm.cat;
     if(!partForm.name || !cat || !partForm.hinban) return;
     const minStock = +partForm.minStock || 10;
+    const type = partForm.type || undefined;
     if(editingPartId) {
-      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock } : p));
+      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock, type } : p));
     } else {
-      const newPart = { id: nextId(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock };
+      const newPart = { id: nextId(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock, type };
       setParts(p => [...p, newPart]);
     }
-    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10" });
+    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", type:"" });
     setNewCatInput("");
     setShowNewCat(false);
     setEditingPartId(null);
     setModal(null);
+  };
+
+  // ── 加工記録 ──────────────────────────────────────────────────
+  const PROC_INIT = { date:today(), inputPartId:"", inputQty:"", outputs:[{partId:"",qty:""}], lossQty:"", note:"" };
+  const [procForm,       setProcForm]       = useState(PROC_INIT);
+  const [editingProcId,  setEditingProcId]  = useState(null);
+
+  const closeProcModal = () => {
+    setModal(null);
+    setEditingProcId(null);
+    setProcForm(PROC_INIT);
+  };
+
+  const openEditProc = (pr) => {
+    setProcForm({
+      date:       pr.date,
+      inputPartId:String(pr.inputPartId),
+      inputQty:   String(pr.inputQty),
+      outputs:    pr.outputs.map(o=>({partId:String(o.partId),qty:String(o.qty)})),
+      lossQty:    pr.lossQty!=null ? String(pr.lossQty) : "",
+      note:       pr.note||"",
+    });
+    setEditingProcId(pr.id);
+    setModal("processing");
+  };
+
+  const saveProc = () => {
+    if(!procForm.inputPartId||!procForm.inputQty||!procForm.date) return;
+    const validOutputs = procForm.outputs.filter(o=>o.partId&&o.qty);
+    if(validOutputs.length===0) return;
+    const record = {
+      date:        procForm.date,
+      inputPartId: +procForm.inputPartId,
+      inputQty:    +procForm.inputQty,
+      outputs:     validOutputs.map(o=>({partId:+o.partId,qty:+o.qty})),
+      lossQty:     procForm.lossQty!=="" ? +procForm.lossQty : 0,
+      note:        procForm.note,
+    };
+    if(editingProcId) {
+      setProcessings(ps=>ps.map(p=>p.id===editingProcId ? {...record,id:editingProcId} : p));
+    } else {
+      setProcessings(ps=>[...ps,{...record,id:nextId()}]);
+    }
+    closeProcModal();
+  };
+
+  const deleteProc = (id) => {
+    if(confirm("この加工記録を削除しますか？")) {
+      setProcessings(ps=>ps.filter(p=>p.id!==id));
+      closeProcModal();
+    }
   };
 
   // ── 委託先新規追加 ────────────────────────────────────────────
@@ -1239,6 +1331,7 @@ export default function App() {
             <div className="sub-tabs">
               <button className={`stab ${subTab==="purchase"?"on":""}`} onClick={()=>setSubTab("purchase")}>仕入（{purchases.length}）</button>
               <button className={`stab ${subTab==="disposal"?"on":""}`} onClick={()=>setSubTab("disposal")}>廃棄（{disposals.length}）</button>
+              <button className={`stab ${subTab==="processing"?"on":""}`} onClick={()=>setSubTab("processing")}>加工（{processings.length}）</button>
               <button className={`stab ${subTab==="part"?"on":""}`} onClick={()=>setSubTab("part")}>部品マスタ（{parts.length}）</button>
             </div>
             {subTab==="purchase" && [...purchases].reverse().map(pu=>{
@@ -1279,6 +1372,33 @@ export default function App() {
                 })}
               </>
             )}
+            {subTab==="processing" && (
+              <>
+                {processings.length===0 && <div className="empty">加工記録はありません</div>}
+                {[...processings].reverse().map(pr=>{
+                  const inPart  = parts.find(p=>p.id===pr.inputPartId);
+                  return (
+                    <div className="rc" key={pr.id}>
+                      <div className="rc-top">
+                        <div>
+                          <div className="rc-name">{inPart?.name||"—"}<span style={{fontSize:11,color:"var(--t2)",marginLeft:6}}>×{pr.inputQty}{inPart?.unit}</span></div>
+                          <div className="rc-meta">{pr.date}</div>
+                        </div>
+                        <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",flexShrink:0}} onClick={()=>openEditProc(pr)}>✏ 編集</button>
+                      </div>
+                      <div style={{marginTop:6,display:"flex",flexWrap:"wrap",gap:4}}>
+                        {pr.outputs.map((o,i)=>{
+                          const op=parts.find(p=>p.id===o.partId);
+                          return <span key={i} style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--tx)"}}>{op?.name||"?"} ×{o.qty}</span>;
+                        })}
+                        {pr.lossQty>0&&<span style={{fontSize:11,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 7px",color:"var(--low)"}}>ロス {pr.lossQty}{inPart?.unit}</span>}
+                      </div>
+                      {pr.note&&<div className="rc-note">📝 {pr.note}</div>}
+                    </div>
+                  );
+                })}
+              </>
+            )}
             {subTab==="part" && (
               <>
                 {parts.length===0 && <div className="empty">部品が登録されていません</div>}
@@ -1288,6 +1408,7 @@ export default function App() {
                       <div className="pn">{p.name}{p.hinban&&<span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400,marginLeft:6}}>#{p.hinban}</span>}</div>
                       <div className="pv">{p.variant}</div>
                       <span className="pbadge">{p.cat}</span>
+                      {p.type&&<span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"原材料":p.type==="part"?"加工済み":""}</span>}
                     </div>
                     <div className="psb" style={{alignItems:"flex-end",gap:6}}>
                       <div className="psu">{p.unit}</div>
@@ -1389,7 +1510,7 @@ export default function App() {
 
         {/* FAB */}
         {tab==="parts"     && <button className="fab" onClick={()=>setModal("part")}>＋</button>}
-        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":subTab==="disposal"?"disposal":"part")}>＋</button>}
+        {tab==="records"   && <button className="fab" onClick={()=>setModal(subTab==="purchase"?"purchase":subTab==="disposal"?"disposal":subTab==="processing"?"processing":"part")}>＋</button>}
         {tab==="sales"     && <button className="fab" onClick={()=>setModal("sale")}>＋</button>}
         {tab==="prodstock" && <button className="fab" onClick={()=>subTab2==="recipe"?setModal("recipe"):setModal("made")}>＋</button>}
         {tab==="consign"   && !selectedConsigneeId && <button className="fab" onClick={()=>setModal("consign")}>＋</button>}
@@ -1441,6 +1562,22 @@ export default function App() {
               <div className="fr">
                 <label className="fl">最低在庫数</label>
                 <input className="fi" type="number" min="0" placeholder="10" value={partForm.minStock} onChange={e=>setPartForm(f=>({...f,minStock:e.target.value}))}/>
+              </div>
+              <div className="fr">
+                <label className="fl">部品タイプ</label>
+                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                  {[
+                    {val:"",       label:"通常",       desc:"仕入れてそのまま使用"},
+                    {val:"material",label:"原材料",     desc:"加工前の素材（布・紐など）"},
+                    {val:"part",   label:"加工済み部品", desc:"原材料から切り出した部品"},
+                  ].map(opt=>(
+                    <button key={opt.val}
+                      className={`chip ${partForm.type===opt.val?"on":""}`}
+                      onClick={()=>setPartForm(f=>({...f,type:opt.val}))}
+                      title={opt.desc}
+                    >{opt.label}</button>
+                  ))}
+                </div>
               </div>
               <div className="div"/>
               <button className="btn-p" onClick={addPart}>{editingPartId ? "保存する" : "登録する"}</button>
@@ -1562,6 +1699,62 @@ export default function App() {
               <button className="btn-p" onClick={saveDisposal}>{editingDisposalId ? "保存する" : "記録 → 在庫から自動減算"}</button>
               <button className="btn-c" onClick={closeDisposalModal}>キャンセル</button>
               {editingDisposalId && <button className="btn-d" onClick={()=>deleteDisposal(editingDisposalId)}>この廃棄記録を削除する</button>}
+            </div>
+          </div>
+        )}
+
+        {/* ════ 加工記録モーダル ════ */}
+        {modal==="processing" && (
+          <div className="ov" onClick={e=>e.target===e.currentTarget&&closeProcModal()}>
+            <div className="modal">
+              <div className="modal-title">{editingProcId ? "加工記録を編集" : "加工を記録"}</div>
+              <div className="modal-sub">原材料 → 加工済み部品への変換を記録します</div>
+
+              <div className="fr"><label className="fl">加工日 *</label>
+                <input className="fi" type="date" value={procForm.date} onChange={e=>setProcForm(f=>({...f,date:e.target.value}))}/>
+              </div>
+
+              <div className="fr"><label className="fl">使用した原材料 *</label>
+                <select className="fs" value={procForm.inputPartId} onChange={e=>setProcForm(f=>({...f,inputPartId:e.target.value}))}>
+                  <option value="">選択してください</option>
+                  {parts.filter(p=>p.type==="material").map(p=>{
+                    const {stock}=partStockMap[p.id]||{stock:0};
+                    return <option key={p.id} value={p.id}>{p.name}（{p.variant}） 残{stock}{p.unit}</option>;
+                  })}
+                </select>
+              </div>
+
+              <div className="fr"><label className="fl">使用量 *（{procForm.inputPartId ? parts.find(p=>p.id===+procForm.inputPartId)?.unit||"" : "—"}）</label>
+                <input className="fi" type="number" placeholder="0" value={procForm.inputQty} onChange={e=>setProcForm(f=>({...f,inputQty:e.target.value}))}/>
+              </div>
+
+              <div className="fr"><label className="fl">切り出し結果 *</label>
+                <div style={{width:"100%"}}>
+                  {procForm.outputs.map((out,i)=>(
+                    <div key={i} style={{display:"flex",gap:6,marginBottom:6,alignItems:"center"}}>
+                      <select className="fs" style={{flex:2}} value={out.partId} onChange={e=>setProcForm(f=>({...f,outputs:f.outputs.map((o,j)=>j===i?{...o,partId:e.target.value}:o)}))}>
+                        <option value="">部品を選択</option>
+                        {parts.filter(p=>p.type==="part").map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）</option>)}
+                      </select>
+                      <input className="fi" type="number" placeholder="数量" style={{flex:1,minWidth:0}} value={out.qty} onChange={e=>setProcForm(f=>({...f,outputs:f.outputs.map((o,j)=>j===i?{...o,qty:e.target.value}:o)}))}/>
+                      {procForm.outputs.length>1&&<button style={{flexShrink:0,padding:"4px 8px",border:"1px solid var(--bd)",borderRadius:6,background:"none",color:"var(--low)",cursor:"pointer",fontSize:13}} onClick={()=>setProcForm(f=>({...f,outputs:f.outputs.filter((_,j)=>j!==i)}))}>✕</button>}
+                    </div>
+                  ))}
+                  <button style={{width:"100%",padding:"6px 0",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}}
+                    onClick={()=>setProcForm(f=>({...f,outputs:[...f.outputs,{partId:"",qty:""}]}))}>＋ 切り出し結果を追加</button>
+                </div>
+              </div>
+
+              <div className="fr"><label className="fl">ロス量（廃棄・端切れ）</label>
+                <input className="fi" type="number" placeholder="0" value={procForm.lossQty} onChange={e=>setProcForm(f=>({...f,lossQty:e.target.value}))}/>
+              </div>
+              <div className="fr"><label className="fl">メモ</label>
+                <input className="fi" placeholder="例: A布 0.5m → 1cm角×100枚" value={procForm.note} onChange={e=>setProcForm(f=>({...f,note:e.target.value}))}/>
+              </div>
+              <div className="div"/>
+              <button className="btn-p" onClick={saveProc}>{editingProcId ? "保存する" : "記録する"}</button>
+              <button className="btn-c" onClick={closeProcModal}>キャンセル</button>
+              {editingProcId && <button className="btn-d" onClick={()=>deleteProc(editingProcId)}>この加工記録を削除する</button>}
             </div>
           </div>
         )}
