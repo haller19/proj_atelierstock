@@ -874,7 +874,7 @@ export default function App() {
   },[purchases]);
 
   // ── 部品マスタ追加・編集 ────────────────────────────────────────────
-  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", type:"" });
+  const [partForm,      setPartForm]      = useState({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", type:"", parentId:"" });
   const [newCatInput,   setNewCatInput]   = useState("");   // カテゴリ新規入力欄
   const [showNewCat,    setShowNewCat]    = useState(false);
   const [editingPartId, setEditingPartId] = useState(null); // null=新規, id=編集中
@@ -883,7 +883,7 @@ export default function App() {
   const [showNewSupplier, setShowNewSupplier] = useState(false);
 
   const openEditPart = (p) => {
-    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban, minStock: String(p.minStock ?? MIN_STOCK[p.id] ?? 10), type: p.type ?? "" });
+    setPartForm({ cat: p.cat, name: p.name, variant: p.variant, unit: p.unit, hinban: p.hinban||"", minStock: String(p.minStock ?? MIN_STOCK[p.id] ?? 10), type: p.type ?? "", parentId: p.parentId ? String(p.parentId) : "" });
     setEditingPartId(p.id);
     setShowNewCat(false);
     setNewCatInput("");
@@ -902,13 +902,14 @@ export default function App() {
     if(!partForm.name || !cat) return;
     const minStock = +partForm.minStock || 10;
     const type = partForm.type || undefined;
+    const parentId = type === "part" && partForm.parentId ? +partForm.parentId : undefined;
     if(editingPartId) {
-      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock, type } : p));
+      setParts(ps => ps.map(p => p.id===editingPartId ? { ...p, cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock, type, parentId } : p));
     } else {
-      const newPart = { id: nextId(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock, type };
+      const newPart = { id: nextId(), cat, name: partForm.name, variant: partForm.variant, unit: partForm.unit, hinban: partForm.hinban, minStock, type, parentId };
       setParts(p => [...p, newPart]);
     }
-    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", type:"" });
+    setPartForm({ cat:"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", type:"", parentId:"" });
     setNewCatInput("");
     setShowNewCat(false);
     setEditingPartId(null);
@@ -1069,42 +1070,68 @@ export default function App() {
             <div className="filter-row">
               <input className="si" placeholder="名前・バリエーションで検索" value={q} onChange={e=>setQ(e.target.value)}/>
             </div>
-            {filteredParts.map(p=>{
-              const {stock,avgPrice,supMap}=partStockMap[p.id];
-              const st=partSt(p.id,stock);
-              const totalBought = p.type==="material" ? purchases.filter(pu=>pu.partId===p.id).reduce((s,pu)=>s+pu.qty,0) : 0;
-              const stockPct    = totalBought>0 ? Math.max(0,Math.min(100,Math.round(stock/totalBought*100))) : 0;
-              return (
-                <div className={`pc ${st}`} key={p.id}>
-                  <div style={{flex:1}}>
-                    <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
-                    <div className="pv">{p.variant}</div>
-                    <span className="pbadge">{p.cat}</span>
-                    {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"原材料":p.type==="part"?"加工済み":""}</span>}
-                    <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
-                    {supMap.size>1
-                      ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}>📦{s}：¥{pr}</span>)}</div>
-                      : <div className="price-row">📦 {[...supMap.keys()][0]||"—"}</div>
-                    }
-                    {p.type==="material" && totalBought>0 && (
-                      <div style={{marginTop:6}}>
-                        <div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
-                          <div style={{height:"100%",width:`${stockPct}%`,background:stockPct>50?"var(--ok)":stockPct>20?"var(--warn)":"var(--low)",borderRadius:3,transition:"width .3s"}}/>
-                        </div>
-                        <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{stock}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
+            {(()=>{
+              // Build grouped list: 原材料の直後に子（加工済み部品）を表示
+              const shownChildIds = new Set();
+              const rows = [];
+              filteredParts.forEach(p=>{
+                if(shownChildIds.has(p.id)) return;
+                rows.push({p, isChild:false});
+                if(p.type==="material"){
+                  // 同じ原材料を親に持つ加工済み部品を挿入（filteredParts内のみ + 全partsも含む）
+                  parts.filter(c=>c.type==="part"&&c.parentId===p.id).forEach(child=>{
+                    shownChildIds.add(child.id);
+                    rows.push({p:child, isChild:true});
+                  });
+                }
+              });
+              return rows.map(({p, isChild})=>{
+                const {stock,avgPrice,supMap}=partStockMap[p.id]||{stock:0,avgPrice:0,supMap:new Map()};
+                const st=partSt(p.id,stock);
+                const totalBought = p.type==="material" ? purchases.filter(pu=>pu.partId===p.id).reduce((s,pu)=>s+pu.qty,0) : 0;
+                const stockPct    = totalBought>0 ? Math.max(0,Math.min(100,Math.round(stock/totalBought*100))) : 0;
+                const parentPart  = isChild ? parts.find(pp=>pp.id===p.parentId) : null;
+                return (
+                  <div key={p.id} style={isChild?{paddingLeft:16,position:"relative"}:{}}>
+                    {isChild && <div style={{position:"absolute",left:8,top:0,bottom:0,width:2,background:"var(--bd)",borderRadius:2}}/>}
+                    <div className={`pc ${st}`} style={isChild?{borderLeftColor:"var(--ac)",borderLeftWidth:3}:{}}>
+                      <div style={{flex:1}}>
+                        {isChild && parentPart && (
+                          <div style={{fontSize:10,color:"var(--t2)",marginBottom:2,display:"flex",alignItems:"center",gap:4}}>
+                            <span style={{color:"var(--ac)"}}>↳</span>
+                            <span>{parentPart.name}{parentPart.hinban?` #${parentPart.hinban}`:""} の加工済み部品</span>
+                          </div>
+                        )}
+                        <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
+                        <div className="pv">{p.variant}</div>
+                        <span className="pbadge">{p.cat}</span>
+                        {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"原材料":p.type==="part"?"加工済み":""}</span>}
+                        <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
+                        {supMap.size>1
+                          ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}>📦{s}：¥{pr}</span>)}</div>
+                          : <div className="price-row">📦 {[...supMap.keys()][0]||"—"}</div>
+                        }
+                        {p.type==="material" && totalBought>0 && (
+                          <div style={{marginTop:6}}>
+                            <div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
+                              <div style={{height:"100%",width:`${stockPct}%`,background:stockPct>50?"var(--ok)":stockPct>20?"var(--warn)":"var(--low)",borderRadius:3,transition:"width .3s"}}/>
+                            </div>
+                            <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{stock}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
+                          </div>
+                        )}
+                        <button style={{marginTop:6,background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}>✏ 編集</button>
                       </div>
-                    )}
-                    <button style={{marginTop:6,background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}>✏ 編集</button>
+                      <div className="psb">
+                        <div className={`psn ${st}`}>{stock}</div>
+                        <div className="psu">{p.unit}</div>
+                        <div className="psm">最低 {partMinStock(p)}</div>
+                        <span className={`sbadge ${st}`}>{st==="low"?"要発注":st==="warn"?"少なめ":"良好"}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="psb">
-                    <div className={`psn ${st}`}>{stock}</div>
-                    <div className="psu">{p.unit}</div>
-                    <div className="psm">最低 {partMinStock(p)}</div>
-                    <span className={`sbadge ${st}`}>{st==="low"?"要発注":st==="warn"?"少なめ":"良好"}</span>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
 
@@ -1604,12 +1631,39 @@ export default function App() {
                   ].map(opt=>(
                     <button key={opt.val}
                       className={`chip ${partForm.type===opt.val?"on":""}`}
-                      onClick={()=>setPartForm(f=>({...f,type:opt.val}))}
+                      onClick={()=>setPartForm(f=>({...f,type:opt.val,parentId:opt.val==="part"?f.parentId:""}))}
                       title={opt.desc}
                     >{opt.label}</button>
                   ))}
                 </div>
               </div>
+              {partForm.type==="part" && (
+                <div className="fr">
+                  <label className="fl">親の原材料</label>
+                  <select className="fs" value={partForm.parentId} onChange={e=>{
+                    const pid = e.target.value;
+                    let hinban = partForm.hinban;
+                    if(pid){
+                      const parent = parts.find(p=>p.id===+pid);
+                      if(parent && parent.hinban){
+                        const children = parts.filter(p=>p.parentId===+pid);
+                        const maxNum = children.reduce((mx,c)=>{
+                          const suffix = c.hinban?.slice(parent.hinban.length+1);
+                          const n = parseInt(suffix,10);
+                          return isNaN(n)?mx:Math.max(mx,n);
+                        },0);
+                        hinban = `${parent.hinban}-${String(maxNum+1).padStart(3,"0")}`;
+                      }
+                    }
+                    setPartForm(f=>({...f,parentId:pid,hinban}));
+                  }}>
+                    <option value="">選択しない</option>
+                    {parts.filter(p=>p.type==="material").map(p=>(
+                      <option key={p.id} value={p.id}>{p.name}（{p.variant}）{p.hinban?` #${p.hinban}`:""}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="div"/>
               <button className="btn-p" onClick={addPart}>{editingPartId ? "保存する" : "登録する"}</button>
               <button className="btn-c" onClick={closePartModal}>キャンセル</button>
