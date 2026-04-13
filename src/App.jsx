@@ -44,7 +44,7 @@ const INIT_DISPOSALS = [
 
 const INIT_PROCESSINGS = [];
 
-// 完成品マスタ（レシピ）
+// 作品マスタ（レシピ）
 const INIT_PRODUCTS = [
   { id:1, name:"パールピアス",           desc:"淡水パール × Cカン × ピアスポスト",
     ingredients:[{partId:7,qty:4},{partId:1,qty:4},{partId:4,qty:1},{partId:9,qty:1},{partId:10,qty:1}],
@@ -57,7 +57,7 @@ const INIT_PRODUCTS = [
     shippingCost:310, laborCost:200 },
 ];
 
-// 完成品の制作記録（これが在庫の源泉）
+// 作品の制作記録（これが在庫の源泉）
 // productId, date, qty, note
 const INIT_MADE = [
   { id:1, productId:1, date:"2025-02-20", qty:10, note:"" },
@@ -188,7 +188,7 @@ function calcProductCost(product, partStockMap, parts) {
   return { breakdown, partCost, packCost, shippingCost:product.shippingCost, laborCost:product.laborCost, total };
 }
 
-// 完成品の手元在庫 = 制作数 - 直販売上 - 委託納品 + 委託返品
+// 作品の手元在庫 = 制作数 - 直販売上 - 委託納品 + 委託返品
 function calcProductStock(productId, made, sales, consignRecords) {
   const madeQty    = made.filter(m=>m.productId===productId).reduce((s,m)=>s+m.qty,0);
   const soldQty    = sales.filter(s=>s.productId===productId).reduce((s,sale)=>s+sale.qty,0);
@@ -295,7 +295,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 .sbadge.warn{background:var(--warn-bg);color:var(--warn);}
 .sbadge.ok{background:var(--ok-bg);color:var(--ok);}
 
-/* 完成品在庫カード */
+/* 作品在庫カード */
 .prod-stk-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:10px;box-shadow:var(--sh);overflow:hidden;}
 .prod-stk-header{padding:13px 13px 11px;display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;}
 .prod-stk-name{font-size:14px;font-weight:700;}
@@ -320,7 +320,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--bg);color:var
 .consignee-stock-big{font-family:'DM Serif Display',serif;font-size:20px;color:var(--tx);}
 .consignee-memo{font-size:10px;color:var(--t2);margin-top:5px;padding-top:4px;border-top:1px solid var(--bd);}
 
-/* 完成品レシピカード */
+/* 作品レシピカード */
 .recipe-card{background:var(--sf);border:1px solid var(--bd);border-radius:var(--r);margin-bottom:10px;box-shadow:var(--sh);overflow:hidden;}
 .recipe-header{padding:13px 13px 10px;display:flex;justify-content:space-between;align-items:flex-start;cursor:pointer;}
 .recipe-name{font-size:14px;font-weight:700;}
@@ -898,7 +898,7 @@ export default function App() {
     return [...base, ...new Set(fromParts)];
   },[parts]);
 
-  // ── 完成品カテゴリ（動的・重複排除） ──────────────────────────
+  // ── 作品カテゴリ（動的・重複排除） ──────────────────────────
   const productCats = useMemo(()=>{
     const base = ["ピアス","イヤリング","ネックレス","ブレスレット","リング","その他"];
     const fromProds = products.map(p=>p.cat).filter(c=>c&&!base.includes(c));
@@ -1214,10 +1214,10 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ 完成品（在庫 + レシピ） ════ */}
+        {/* ════ 作品（在庫 + レシピ） ════ */}
         {tab==="prodstock" && (
           <div className="sec">
-            <div className="sec-title">完成品</div>
+            <div className="sec-title">作品</div>
             <div className="sub-tabs">
               <button className={`stab ${subTab2==="stock"?"on":""}`} onClick={()=>setSubTab2("stock")}>在庫</button>
               <button className={`stab ${subTab2==="recipe"?"on":""}`} onClick={()=>setSubTab2("recipe")}>レシピ・原価</button>
@@ -1229,7 +1229,7 @@ export default function App() {
               ))}
             </div>
 
-            {/* 完成品在庫 */}
+            {/* 作品在庫 */}
             {subTab2==="stock" && [...products].sort((a,b)=>(a.cat||"").localeCompare(b.cat||"")).filter(pr=>prodCatFilter==="すべて"||pr.cat===prodCatFilter).map(pr=>{
               const stk   = productStockMap[pr.id];
               const isOpen= open[`ps${pr.id}`];
@@ -1677,7 +1677,7 @@ export default function App() {
             { id:"dashboard", icon:"fal fa-home",       label:"HOME" },
             { id:"parts",     icon:"fal fa-boxes",      label:"部品在庫" },
             { id:"records",   icon:"fal fa-truck",      label:"仕入・廃棄" },
-            { id:"prodstock", icon:"fal fa-gem",        label:"完成品" },
+            { id:"prodstock", icon:"fal fa-gem",        label:"作品" },
             { id:"consign",   icon:"fal fa-store",      label:"委託" },
             { id:"sales",     icon:"fal fa-chart-line", label:"売上" },
           ].map(t=>(
@@ -2007,15 +2007,15 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ 完成品制作モーダル ════ */}
+        {/* ════ 作品制作モーダル ════ */}
         {modal==="made" && (()=>{
           const selProd = products.find(p=>p.id===+mf.productId);
           const prodQty = +mf.qty||1;
           return (
           <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
             <div className="modal">
-              <div className="modal-title">完成品を制作</div>
-              <div className="modal-sub">制作した分だけ完成品在庫が増えます</div>
+              <div className="modal-title">作品を制作</div>
+              <div className="modal-sub">制作した分だけ作品在庫が増えます</div>
               <div className="fr"><label className="fl">商品 *</label>
                 <select className="fs" value={mf.productId} onChange={e=>setMf(f=>({...f,productId:e.target.value,checkedParts:{},extraParts:[],lossParts:[]}))}>
                   <option value="">選択してください</option>
@@ -2086,7 +2086,7 @@ export default function App() {
 
               <div className="fr" style={{marginTop:12}}><label className="fl">メモ</label><input className="fi" placeholder="例: 追加制作、試作品など" value={mf.note} onChange={e=>setMf(f=>({...f,note:e.target.value}))}/></div>
               <div className="div"/>
-              <button className="btn-p" onClick={addMade}>記録 → 完成品在庫に加算</button>
+              <button className="btn-p" onClick={addMade}>記録 → 作品在庫に加算</button>
               <button className="btn-c" onClick={()=>{setMf(MF_INIT);setModal(null);}}>キャンセル</button>
             </div>
           </div>
@@ -2245,7 +2245,7 @@ export default function App() {
         {modal==="recipe" && (
           <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
             <div className="modal">
-              <div className="modal-title">{editingRecipeId ? "レシピを編集" : "完成品レシピを登録"}</div>
+              <div className="modal-title">{editingRecipeId ? "レシピを編集" : "作品レシピを登録"}</div>
               <div className="fr">
                 <label className="fl">カテゴリ</label>
                 {!showNewProdCat ? (
