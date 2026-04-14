@@ -1284,19 +1284,26 @@ export default function App() {
             </div>
             {(()=>{
               // Build grouped list: 母材の直後に子（中間材）を表示
-              const shownChildIds = new Set();
+              const shownIds = new Set();
               const rows = [];
               filteredParts.forEach(p=>{
-                if(shownChildIds.has(p.id)) return;
-                // 中間材（type:"part" && parentId あり）は常にisChild:trueで表示
-                const isChild = p.type==="part" && !!p.parentId;
-                rows.push({p, isChild});
+                if(shownIds.has(p.id)) return;
+                shownIds.add(p.id);
                 if(p.type==="material"){
-                  // 同じ母材を親に持つ中間材を挿入（全partsから）
+                  // 母材: 本体を追加し、子中間材をすべて直後に挿入
+                  rows.push({p, isChild:false});
                   parts.filter(c=>c.type==="part"&&c.parentId===p.id).forEach(child=>{
-                    shownChildIds.add(child.id);
-                    rows.push({p:child, isChild:true});
+                    if(!shownIds.has(child.id)){
+                      shownIds.add(child.id);
+                      rows.push({p:child, isChild:true});
+                    }
                   });
+                } else if(p.type==="part" && p.parentId){
+                  // 中間材: 親が未表示でも isChild:true で表示（重複しない）
+                  rows.push({p, isChild:true});
+                } else {
+                  // 通常の部品
+                  rows.push({p, isChild:false});
                 }
               });
               return rows.map(({p, isChild})=>{
@@ -2113,7 +2120,11 @@ export default function App() {
               <div className="modal-title">作品を制作</div>
               <div className="modal-sub">制作した分だけ作品在庫が増えます</div>
               <div className="fr"><label className="fl">商品 *</label>
-                <select className="fs" value={mf.productId} onChange={e=>setMf(f=>({...f,productId:e.target.value,checkedParts:{},extraParts:[],lossParts:[]}))}>
+                <select className="fs" value={mf.productId} onChange={e=>{
+                  const prod = products.find(p=>p.id===+e.target.value);
+                  const checkedParts = prod ? Object.fromEntries(prod.ingredients.map(ing=>[ing.partId,true])) : {};
+                  setMf(f=>({...f,productId:e.target.value,checkedParts,extraParts:[],lossParts:[]}));
+                }}>
                   <option value="">選択してください</option>
                   {products.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
@@ -2126,8 +2137,8 @@ export default function App() {
               {selProd && selProd.ingredients.length>0 && (
                 <div className="made-sec">
                   <div className="made-sec-ttl">
-                    <span>レシピ部品 - 使用したものをタップ</span>
-                    <span style={{fontWeight:400,color:"var(--ac)"}}>使用済 = 在庫から差し引き</span>
+                    <span>レシピ部品 - 使わなかったものをタップして解除</span>
+                    <span style={{fontWeight:400,color:"var(--ac)"}}>チェック済 = 在庫から差し引き</span>
                   </div>
                   <div className="part-chips">
                     {selProd.ingredients.map(ing=>{
