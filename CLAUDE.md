@@ -210,21 +210,68 @@ partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
 
 ## デザインルール
 
-### カラーパレット（CSS変数）
+### デザインシステム：Material Design 3（MD3）
+
+テラコッタ（#9C4A23）をシードカラーとしたMD3ライトスキームを採用。
+
+#### MD3トークン（CSS変数）
 
 ```css
---bg: #faf8f5      /* ページ背景（温かみのあるオフホワイト） */
---sf: #ffffff      /* カード背景 */
---s2: #f4f1ec      /* サブ背景・展開エリア */
---bd: #e8e3da      /* ボーダー */
---tx: #2c2417      /* メインテキスト */
---t2: #8c7d6a      /* サブテキスト */
---ac: #c9773a      /* アクセント（テラコッタ） */
---gold: #d4a853    /* ロゴゴールド */
---low: #c94040     /* 警告・要発注 */
---warn: #b87d2a    /* 注意・少なめ */
---ok: #3a8c5a      /* 良好・利益プラス */
+/* Primary（テラコッタ） */
+--md-p:   #9C4A23   /* Primary */
+--md-op:  #FFFFFF   /* On Primary */
+--md-pc:  #FFDBC9   /* Primary Container */
+--md-opc: #380E00   /* On Primary Container */
+
+/* Secondary（ウォームブラウン） */
+--md-s:      #775748
+--md-sec-c:  #FFDBD1   /* Secondary Container — チップ選択時に使用 */
+--md-osec:   #2C1510
+
+/* Error */
+--md-e:  #BA1A1A
+--md-ec: #FFDAD6   /* Error Container */
+
+/* Surface */
+--md-bg:  #FFF8F5   /* Background */
+--md-osf: #201A17   /* On Surface */
+--md-osv: #53433F   /* On Surface Variant（サブテキスト） */
+--md-ol:  #857370   /* Outline */
+--md-olv: #D8C2BC   /* Outline Variant（ボーダー） */
+
+/* Surface Containers（低→高） */
+--md-sc0: #FFFFFF   /* lowest — カード背景 */
+--md-sc1: #FCF0EC   /* low — モーダル・展開エリア */
+--md-sc3: #F0E3DF   /* high — プレビューボックス */
+--md-sc4: #EAE0DC   /* highest — バーグラフ背景 */
+
+/* Elevation */
+--md-e1: 0 1px 2px rgba(0,0,0,.1), 0 1px 4px rgba(0,0,0,.07)  /* カード */
+--md-e2: 0 2px 4px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.08) /* ホバー時 */
+--md-e3: 0 4px 8px rgba(0,0,0,.12), 0 4px 16px rgba(0,0,0,.08) /* FAB・メニュー */
+
+/* Shape scale */
+--r-xs: 4px  --r-sm: 8px  --r: 12px  --r-lg: 16px  --r-xl: 28px
+
+/* Legacy aliases（JSXインラインスタイルとの互換用） */
+--bg --sf --s2 --bd --tx --t2 --ac --gold --low --low-bg --warn --warn-bg --ok --ok-bg
 ```
+
+#### MD3コンポーネント対応
+
+| 要素 | クラス | MD3パターン |
+|------|--------|------------|
+| ヘッダー | `.header` | Top App Bar（Primary背景・白テキスト） |
+| ナビ | `.nav` / `.nb` / `.ni` | Navigation Bar（アクティブ時 `.ni` に Primary Container ピル） |
+| カード | `.pc` `.prod-stk-card` など | Elevated Card（`--md-sc0` + `--md-e1`） |
+| FAB | `.fab` | Standard FAB（`--md-pc` 背景・`--r-lg` 角丸） |
+| モーダル | `.modal` | Bottom Sheet（28px角丸・`::before` ドラッグハンドル） |
+| ボタン | `.btn-p` | Filled Button（Primary・Pill型 `--r-xl`） |
+| ボタン | `.btn-c` | Outlined Button（Primary文字・`--md-ol` 枠） |
+| ボタン | `.btn-d` | Error Outlined Button |
+| チップ | `.chip` / `.chip.on` | Filter Chip（オン時 Secondary Container） |
+| テキスト欄 | `.fi` / `.fs` | Outlined Text Field（フォーカス時 2px Primary） |
+| サブタブ | `.sub-tabs` / `.stab` | Segmented Control（アクティブ時 白浮き上がり） |
 
 ### フォント
 
@@ -354,6 +401,35 @@ const parseFraction = (str) => {
 - `openReplenish(p)` → 仕入モーダル（`pf.partId` セット）
 - `openStockCreate(p)` → 素材加工モーダル（`procForm.outputs[0].partId` にこの中間材、`procForm.inputPartId` に `p.parentId` をセット）
 
+### 部品在庫タブのフィルタ・ソート
+
+**カテゴリフィルタ**（`cat` state）
+- `filteredParts` useMemo でフィルタ。中間材は直接フィルタ対象だが、**親の母材がフィルタに含まれる場合は親経由で挿入**（重複なし）
+- 親が非表示の「孤立中間材」は末尾に追加し、`isChild:true` で表示
+
+**並び順**（`partSort` + `partSortDir` state）
+- `partSort`: `"name"` | `"stock"` | `"update"`
+- `partSortDir`: `"asc"` | `"desc"`（昇順/降順トグル）
+- **ソート対象は母材・通常のみ**。中間材はソートから除外し、`filteredParts` は `[...topLevel, ...orphans]` の順で返す
+- レンダリング時に母材の子中間材を **同じ基準・同じ方向でソートして直後に挿入**
+
+**レンダリングロジック（IIFE内）**
+```js
+// filteredParts は母材+通常（ソート済み）+ 孤立中間材 の順
+filteredParts.forEach(p => {
+  if(p.type==="material") {
+    rows.push({p, isChild:false});
+    parts.filter(c=>c.type==="part"&&c.parentId===p.id)
+         .sort(childSortFn)  // 同じ基準でソート
+         .forEach(child => rows.push({p:child, isChild:true}));
+  } else if(p.type==="part" && p.parentId) {
+    rows.push({p, isChild:true});  // 孤立中間材
+  } else {
+    rows.push({p, isChild:false}); // 通常
+  }
+});
+```
+
 ### 部品カテゴリ
 
 - `partCats` は `as_part_cats`（LocalStorage）に保存されたマスタリストを使用
@@ -370,6 +446,17 @@ const parseFraction = (str) => {
 - レシピ登録モーダルでチップ選択（トグル：再タップで解除）または「＋ 新規」で自由入力
 - 作品在庫・レシピ一覧はカテゴリフィルタチップでフィルタ、カテゴリ名でアルファベットソート
 
+### 作品を制作フォーム（`modal="made"`）
+
+- `mf.checkedParts`：レシピ部品のチェック状態（`{[partId]: boolean}`）
+- **商品選択時に全レシピ素材を自動チェック済み**（`true`）にセット
+  ```js
+  const prod = products.find(p=>p.id===+e.target.value);
+  const checkedParts = prod ? Object.fromEntries(prod.ingredients.map(ing=>[ing.partId,true])) : {};
+  ```
+- ユーザーは「使わなかった素材」だけタップして解除する操作に変更
+- チェック済み素材のみ在庫から差し引き（`type:"recipe"` の部品使用記録を生成）
+
 ### 委託終了フロー
 
 1. 委託先詳細の現在庫カードに「委託終了」ボタン（赤枠）を表示（在庫 > 0 のみ）
@@ -382,12 +469,12 @@ const parseFraction = (str) => {
 
 - カードをタップ → 詳細展開（`open` state で管理、キー: `ps{id}` `rc{id}` `s{id}` `cn{id}`）
 - 展開エリア内に編集ボタンを配置（仕入・廃棄・売上・レシピ）
-- モーダルはボトムシート形式（`animation: slideUp`）
-- FAB（右下固定ボタン）でデータ追加
-- 在庫ステータス: `low`（要発注）/ `warn`（少なめ）/ `ok`（良好）をカード左ボーダー色で表現
-- 削除ボタンは `.btn-d` クラス（赤系）、編集モーダルの下部に配置
-- チップボタン: `.chip` / `.chip.on` クラス
-- ヘッダー右端の管理設定ボタン: `.h-mgmt-btn` クラス（ゴールド枠・小さめテキスト）
+- モーダルはボトムシート形式（28px角丸・ドラッグハンドル付き）
+- FAB（右下固定ボタン）でデータ追加（`bottom: 82px`）
+- 在庫ステータス: `low`（要発注）/ `warn`（少なめ）/ `ok`（良好）をカード左4pxボーダー色で表現
+- 削除ボタンは `.btn-d` クラス（Error色）、編集モーダルの下部に配置
+- チップボタン: `.chip` / `.chip.on` クラス（オン時は Secondary Container）
+- ヘッダー右端の管理設定ボタン: `.h-mgmt-btn` クラス（半透明白枠・Primary背景上）
 
 ### 部品在庫タブのモーダル一覧
 
@@ -471,6 +558,10 @@ npm run preview  # ビルド結果をローカルで確認
 
 | 日付 | 内容 |
 |------|------|
+| 2026-04-14 | デザイン全面刷新：Material Design 3（テラコッタシード）を採用。MD3トークン・Navigation Bar ピル・FAB・Bottom Sheet・ボタン・チップ等を刷新 |
+| 2026-04-14 | 部品在庫の並び順に昇順/降順トグル（`partSortDir`）追加。ソートは母材・通常のみ対象とし、中間材は親グループ内で同基準ソート |
+| 2026-04-14 | 作品を制作フォーム：商品選択時にレシピ全素材を自動チェック済みにし、「使わなかった素材をタップ解除」方式に変更 |
+| 2026-04-14 | 部品在庫カテゴリフィルタ修正：中間材の重複表示バグを修正（`shownIds` で完全な重複排除） |
 | 2026-04-13 | FontAwesome Pro 5.15 アイコン置換（絵文字・テキストアイコン廃止） |
 | 2026-04-13 | 管理設定モーダル追加（部品マスタ・カテゴリ設定）。ヘッダー右端にボタン配置 |
 | 2026-04-13 | 部品在庫タブ: カード内「仕入」「廃棄」ボタン追加、「履歴参照」ボタン追加、FAB→デュアルタブモーダル（`parts_add`）変更 |

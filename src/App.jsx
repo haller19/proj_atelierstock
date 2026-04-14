@@ -775,20 +775,25 @@ export default function App() {
 
   const filteredParts = useMemo(()=>{
     const base = parts.filter(p=>(cat==="すべて"||p.cat===cat)&&(p.name.includes(q)||(p.variant||"").includes(q)));
-    const arr = [...base];
     const dir = partSortDir==="asc" ? 1 : -1;
-    if(partSort==="name") {
-      arr.sort((a,b)=>dir*a.name.localeCompare(b.name,"ja"));
-    } else if(partSort==="stock") {
-      arr.sort((a,b)=>dir*((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0)));
-    } else if(partSort==="update") {
-      const lastDate = id => {
-        const rows = purchases.filter(p=>p.partId===id);
-        return rows.length ? rows.reduce((mx,p)=>p.date>mx?p.date:mx,"") : "";
-      };
-      arr.sort((a,b)=>dir*lastDate(a.id).localeCompare(lastDate(b.id)));
-    }
-    return arr;
+    const lastDateOf = id => {
+      const rs = purchases.filter(p=>p.partId===id);
+      return rs.length ? rs.reduce((mx,p)=>p.date>mx?p.date:mx,"") : "";
+    };
+    const sortFn = (a,b) => {
+      if(partSort==="name")   return dir * a.name.localeCompare(b.name,"ja");
+      if(partSort==="stock")  return dir * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
+      if(partSort==="update") return dir * lastDateOf(a.id).localeCompare(lastDateOf(b.id));
+      return 0;
+    };
+    // 中間材を除いたトップレベル（母材・通常）をソート
+    const topLevel = base.filter(p=>!(p.type==="part"&&p.parentId));
+    topLevel.sort(sortFn);
+    // フィルタに一致するが親がトップレベルにない孤立中間材を末尾に追加
+    const topIds = new Set(topLevel.map(p=>p.id));
+    const orphans = base.filter(p=>p.type==="part"&&p.parentId&&!topIds.has(p.parentId));
+    orphans.sort(sortFn);
+    return [...topLevel, ...orphans];
   },[parts,cat,q,partSort,partSortDir,partStockMap,purchases]);
 
   const alerts = parts.filter(p=>partStockMap[p.id].stock<partMinStock(p));
@@ -1508,23 +1513,32 @@ export default function App() {
               </button>
             </div>
             {(()=>{
-              // Build grouped list: 母材の直後に子（中間材）を表示
+              // Build grouped list: 母材の直後に子（中間材）をソートして挿入
+              const dir2 = partSortDir==="asc" ? 1 : -1;
+              const lastDateOf2 = id => { const rs=purchases.filter(p=>p.partId===id); return rs.length?rs.reduce((mx,p)=>p.date>mx?p.date:mx,""):""; };
+              const childSortFn = (a,b) => {
+                if(partSort==="name")   return dir2 * a.name.localeCompare(b.name,"ja");
+                if(partSort==="stock")  return dir2 * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
+                if(partSort==="update") return dir2 * lastDateOf2(a.id).localeCompare(lastDateOf2(b.id));
+                return 0;
+              };
               const shownIds = new Set();
               const rows = [];
               filteredParts.forEach(p=>{
                 if(shownIds.has(p.id)) return;
                 shownIds.add(p.id);
                 if(p.type==="material"){
-                  // 母材: 本体を追加し、子中間材をすべて直後に挿入
+                  // 母材: 本体を追加し、子中間材を同じ基準でソートして直後に挿入
                   rows.push({p, isChild:false});
-                  parts.filter(c=>c.type==="part"&&c.parentId===p.id).forEach(child=>{
+                  const children = parts.filter(c=>c.type==="part"&&c.parentId===p.id);
+                  [...children].sort(childSortFn).forEach(child=>{
                     if(!shownIds.has(child.id)){
                       shownIds.add(child.id);
                       rows.push({p:child, isChild:true});
                     }
                   });
                 } else if(p.type==="part" && p.parentId){
-                  // 中間材: 親が未表示でも isChild:true で表示（重複しない）
+                  // 孤立中間材: 親が非表示でも isChild:true で表示
                   rows.push({p, isChild:true});
                 } else {
                   // 通常の部品
