@@ -9,8 +9,9 @@
 
 - **フレームワーク**: React 18（Vite）
 - **スタイル**: CSS-in-JS（テンプレートリテラルでCSSを定義、`<style>` タグで注入）
-- **状態管理**: React useState / useMemo のみ（外部ライブラリなし）
-- **永続化**: LocalStorage（`useLS` カスタムフック）
+- **状態管理**: React useState / useMemo / useEffect / useRef（外部ライブラリなし）
+- **永続化**: LocalStorage（`useLS` カスタムフック）をキャッシュとして使用
+- **クラウド同期**: Google Drive（オプション。`VITE_DRIVE_CLIENT_ID` 設定時に有効）
 - **ビルド**: Vite → `npm run build` で `dist/` を生成
 - **デプロイ先**: Xserver（`dist/` の中身を `public_html/` 以下に配置）
 
@@ -20,7 +21,9 @@
 
 ```
 src/
-└── App.jsx   # アプリ全体（単一ファイル構成）
+└── App.jsx      # アプリ全体（単一ファイル構成）
+.env.local       # Google Drive クライアントID（Git管理外 *.local）
+.env.example     # .env.local のテンプレート（Git管理対象）
 ```
 
 現時点では単一ファイル構成。機能追加時にコンポーネント分割を検討する場合は相談すること。
@@ -71,7 +74,10 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 // 例: "A布 1m" は type:"material"、"A布 1cm角" は type:"part", parentId=<A布のid>
 
 // 仕入記録
-{ id, partId, date, supplier, qty, unitPrice, note }
+{ id, partId, date, supplier, qty, totalPrice, unitPrice, note }
+// totalPrice: 実購入額（税込・円）。会計帳簿用。UI表示は「部品数量」
+// unitPrice:  税抜単価 = Math.round(totalPrice / qty / 1.1 * 100) / 100（原価計算用）
+// 旧レコード（totalPrice未設定）は openEditPurchase で qty * unitPrice * 1.1 に自動換算
 // ※ type:"part"（中間材）は仕入モーダルに表示しない
 
 // 部品廃棄記録
@@ -131,6 +137,8 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 | `as_channels` | チャネルマスタ |
 | `as_part_cats` | 部品カテゴリマスタ（管理設定で編集・削除可能） |
 | `as_product_cats` | 作品カテゴリマスタ（管理設定で編集・削除可能） |
+| `as_drive_file_id` | Google Drive ファイルID（同期済みファイルの再利用に使用） |
+| `as_local_saved_at` | ローカルデータの最終保存日時（Drive と Local の新旧比較用） |
 
 ---
 
@@ -338,6 +346,8 @@ public/
 | 管理設定 | `fal fa-cog` |
 | 履歴参照 | `fal fa-history` |
 | 場所・住所 | `fal fa-map-marker-alt` |
+| Google Drive サインイン | `fab fa-google` |
+| Drive サインアウト | `fal fa-sign-out-alt` |
 
 ### 部品マスタの親子関係（母材 ↔ 中間材）
 
@@ -475,6 +485,7 @@ filteredParts.forEach(p => {
 - 削除ボタンは `.btn-d` クラス（Error色）、編集モーダルの下部に配置
 - チップボタン: `.chip` / `.chip.on` クラス（オン時は Secondary Container）
 - ヘッダー右端の管理設定ボタン: `.h-mgmt-btn` クラス（半透明白枠・Primary背景上）
+- Drive 同期ボタン（管理設定の左隣）: `.h-drive-signin` / `.h-drive-wrap` クラス
 
 ### 部品在庫タブのモーダル一覧
 
@@ -524,6 +535,71 @@ MIN_STOCK = { 1:50, 2:50, 3:100, 4:30, 5:5, 6:10, 7:80, 8:20, 9:100, 10:50 }
 
 ---
 
+## Google Drive 同期
+
+### 概要
+
+LocalStorage をキャッシュとして使いつつ、Google Drive の単一 JSON ファイル（`atelier-stock-data.json`）に全データを同期する。ユーザーごとに自分の Google Drive を使うため、ユーザー間のデータは完全に分離される。
+
+### 動作フロー
+
+| タイミング | 処理 |
+|-----------|------|
+| 起動時（サインイン後） | Drive と Local の `lastSavedAt` を比較 → 新しい方を正として古い方を上書き |
+| データ変更時 | 2 秒デバウンス後に Drive へ自動書き込み |
+| サインアウト時 | ローカルデータはそのまま、Drive 接続のみ解除 |
+
+### 環境変数
+
+```
+# .env.local（Git管理外）
+VITE_DRIVE_CLIENT_ID=<Google Cloud Console で取得したクライアントID>
+```
+
+`DRIVE_CLIENT_ID` が空文字の場合、Drive 同期 UI は表示されない（LocalStorage のみで動作）。
+
+### Google Cloud Console 設定手順
+
+1. プロジェクト作成 → Google Drive API を有効化
+2. 「認証情報」→「OAuth 2.0 クライアントID」を作成（種類: ウェブアプリケーション）
+3. 承認済みの JavaScript 生成元に `http://localhost:5173` と本番 URL を追加
+4. OAuth 同意画面 → スコープに `drive.file` を追加、テストユーザーを登録
+5. 取得したクライアントID を `.env.local` の `VITE_DRIVE_CLIENT_ID` に設定
+
+### 実装の注意点
+
+- `driveRef`（useRef）に token・fileId・timer 等の mutable な Drive 状態を集約（state は UI 表示用のみ）
+- `buildDrivePayload` / `applyDriveData` は render ごとに `driveRef.current` に格納 → GIS コールバック内の stale closure を防ぐ
+- `applyDriveData` 実行時は `driveRef.current.skipSync = true` を立てて自動保存の無限ループを防止
+- クライアントシークレット（`CLIENT_SECRET`）はブラウザ側に置いてはいけない。`drive.file` スコープのトークンフローはシークレット不要
+
+### ヘッダー UI
+
+| 状態 | 表示 |
+|------|------|
+| 未設定（`DRIVE_CLIENT_ID` 空） | 非表示 |
+| 未サインイン | `[G] 同期` ボタン（`.h-drive-signin`） |
+| サインイン済み | プロフィール写真 + カラードット + サインアウトボタン（`.h-drive-wrap`） |
+
+**ドット色クラス:** `.ds-idle`（グレー）/ `.ds-loading`,`.ds-syncing`（黄点滅）/ `.ds-ok`（緑）/ `.ds-error`（赤）
+
+---
+
+## データ管理（Export / Import）
+
+管理設定 → データ管理 ページから操作。
+
+| 機能 | 形式 | 内容 |
+|------|------|------|
+| JSONエクスポート | `.json` | 全テーブル一括。`version` + `exportedAt` + `data` 構造 |
+| JSONインポート | `.json` | 全テーブル上書き（確認ダイアログあり） |
+| CSVエクスポート | `.csv` | テーブル単位。UTF-8 BOM付き（Excel対応） |
+| CSVインポート | `.csv` | マージ（ID重複時上書き）または全置換を選択 |
+
+**売上記録 CSV** にはエクスポート時のみ `productName`（作品名）と `consignMemo`（委託記録メモ）を付与（インポート用の `cols` は変えずに `exportCols` を別定義）。
+
+---
+
 ## 開発コマンド
 
 ```bash
@@ -545,12 +621,11 @@ npm run preview  # ビルド結果をローカルで確認
 ## 今後の課題・未実装
 
 ### 機能面
-- データのエクスポート・バックアップ機能（JSON出力など）
 - 月次レポートの期間切り替え（ダッシュボードは現在月固定）
 - 制作記録の編集・削除（現状は追加のみ）
 
-### インフラ面（将来）
-- **Supabase移行**：現状LocalStorageのみ。複数端末同期・データ永続化のためSupabase（PostgreSQL）へ移行予定。移行時は `useLS` フックをSupabase APIクライアントに差し替える形を想定
+### インフラ面
+- Google Drive トークン自動リフレッシュ：アクセストークンは 1 時間で失効。長時間使用時の再サインインを自動化
 
 ---
 
@@ -558,6 +633,11 @@ npm run preview  # ビルド結果をローカルで確認
 
 | 日付 | 内容 |
 |------|------|
+| 2026-04-15 | Google Drive 同期機能実装。起動時タイムスタンプ比較・2秒デバウンス自動保存・ユーザーごとのDrive分離 |
+| 2026-04-15 | データ管理（JSON/CSV Export/Import）実装。管理設定→データ管理ページ |
+| 2026-04-15 | 仕入記録に実購入額(税込)フィールド（`totalPrice`）追加。UI表示を「部品数量」に変更 |
+| 2026-04-15 | 売上CSV エクスポートに作品名・委託記録メモを付与 |
+| 2026-04-15 | 部品在庫の残量を小数点以下2桁・四捨五入・末尾ゼロ除去（`fmtStock`）で表示 |
 | 2026-04-14 | デザイン全面刷新：Material Design 3（テラコッタシード）を採用。MD3トークン・Navigation Bar ピル・FAB・Bottom Sheet・ボタン・チップ等を刷新 |
 | 2026-04-14 | 部品在庫の並び順に昇順/降順トグル（`partSortDir`）追加。ソートは母材・通常のみ対象とし、中間材は親グループ内で同基準ソート |
 | 2026-04-14 | 作品を制作フォーム：商品選択時にレシピ全素材を自動チェック済みにし、「使わなかった素材をタップ解除」方式に変更 |
