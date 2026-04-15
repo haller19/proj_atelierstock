@@ -1583,7 +1583,7 @@ export default function App() {
                         <div style={{marginTop:6,display:"flex",gap:5,flexWrap:"wrap"}}>
                           <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
                           {p.type==="part"
-                            ? <button style={{background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openStockCreate(p)}><i className="fal fa-scissors" style={{marginRight:4}}/>加工</button>
+                            ? <button style={{background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openStockCreate(p)}><i className="fal fa-cut" style={{marginRight:4}}/>加工</button>
                             : <button style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>仕入</button>
                           }
                           <button style={{background:"none",color:"var(--low)",border:"1px solid var(--low)",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>{setDf({partId:String(p.id),date:today(),qty:"",reason:""});setEditingDisposalId(null);setModal("disposal");}}><i className="fal fa-trash" style={{marginRight:4}}/>廃棄</button>
