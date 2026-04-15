@@ -1683,9 +1683,9 @@ export default function App() {
                 {label:"売上記録",  icon:"fal fa-chart-line",  action:()=>setModal("sale")},
               ].map(b=>(
                 <button class="btn-quickaction" key={b.label}
-                  style={{flex:"1 1 auto",padding:"30px 25px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:18,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
+                  style={{flex:"1 1 auto",padding:"30px 25px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:18,cursor:"pointer",fontFamily:"inherit",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
                   onClick={b.action}>
-                  <i className={b.icon} style={{color:"var(--ac)"}}/>
+                  <i className={b.icon} style={{display:"block",fontSize:30,marginBottom:8,color:"var(--ac)"}}/>
                   {b.label}
                 </button>
               ))}
@@ -2541,10 +2541,10 @@ export default function App() {
               </div>
               {procStockPreview && procStockPreview.after!==null && (
                 <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"7px 12px",marginBottom:8,fontSize:12}}>
-                  <span style={{color:"var(--t2)"}}>現在在庫 {fmtStock(procStockPreview.current)}{procStockPreview.unit}</span>
+                  <span style={{color:"var(--t2)"}}>現在在庫 {procStockPreview.current}{procStockPreview.unit}</span>
                   <span style={{margin:"0 6px",color:"var(--t2)"}}>→</span>
                   <span style={{fontWeight:700,color:procStockPreview.insufficient?"var(--low)":"var(--ok)"}}>
-                    使用後 {fmtStock(procStockPreview.after)}{procStockPreview.unit}
+                    使用後 {Math.round(procStockPreview.after*1000)/1000}{procStockPreview.unit}
                     {procStockPreview.insufficient&&<> <i className="fas fa-exclamation-triangle" style={{marginLeft:4}}/>在庫不足</>}
                   </span>
                 </div>
