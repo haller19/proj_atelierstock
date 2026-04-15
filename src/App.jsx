@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 
 // ═══════════════════════════════════════════════════════════════
 //  初期データ
@@ -218,6 +218,64 @@ const fmt      = n => Math.round(Number(n)).toLocaleString("ja-JP");
 const fmtD     = n => Number(n).toFixed(1);
 const fmtStock = n => parseFloat(Number(n).toFixed(2)); // 小数点以下2桁・四捨五入・末尾ゼロ除去
 const pct  = (a,b) => b===0?0:Math.round((a/b)*100);
+
+// ─── Google Drive 同期 ────────────────────────────────────────
+// クライアントIDは .env.local の VITE_DRIVE_CLIENT_ID に設定してください
+// （.env.local は *.local パターンで Git 管理外）
+const DRIVE_CLIENT_ID = import.meta.env.VITE_DRIVE_CLIENT_ID ?? '';
+const DRIVE_FILE_NAME = 'atelier-stock-data.json';
+const DRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
+
+async function driveFetch(url, token, init = {}) {
+  const { headers: extraHdrs, ...rest } = init;
+  const res = await fetch(url, {
+    ...rest,
+    headers: { Authorization: `Bearer ${token}`, ...(extraHdrs || {}) },
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`Drive ${res.status}: ${t}`); }
+  return res;
+}
+
+async function driveFindFile(token) {
+  const q   = encodeURIComponent(`name='${DRIVE_FILE_NAME}' and trashed=false`);
+  const res = await driveFetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id)&spaces=drive`,
+    token
+  );
+  const data = await res.json();
+  return data.files?.[0]?.id ?? null;
+}
+
+async function driveReadFile(token, fileId) {
+  const res = await driveFetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    token
+  );
+  return res.json();
+}
+
+async function driveWriteFile(token, fileId, payload) {
+  const body = JSON.stringify(payload);
+  if (fileId) {
+    await driveFetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+      token,
+      { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body }
+    );
+    return fileId;
+  }
+  // 新規作成（multipart upload）
+  const bd   = 'as_bnd_001';
+  const meta = JSON.stringify({ name: DRIVE_FILE_NAME, mimeType: 'application/json' });
+  const mp   = `--${bd}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${bd}\r\nContent-Type: application/json\r\n\r\n${body}\r\n--${bd}--`;
+  const res  = await driveFetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
+    token,
+    { method: 'POST', headers: { 'Content-Type': `multipart/related; boundary=${bd}` }, body: mp }
+  );
+  const data = await res.json();
+  return data.id;
+}
 
 function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined) {
   const disps   = disposals.filter(d=>d.partId===partId);
@@ -771,6 +829,33 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 }
 .btn-d:hover{background:var(--md-ec);}
 .empty{text-align:center;color:var(--md-osv);font-size:13px;padding:32px 0;}
+
+/* ─── DRIVE SYNC ─── */
+.h-drive-wrap{display:flex;align-items:center;gap:5px;margin-right:4px;}
+.h-drive-signin{
+  background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);
+  border-radius:var(--r-sm);color:#fff;font-size:12px;cursor:pointer;
+  padding:6px 10px;font-family:inherit;display:flex;align-items:center;gap:5px;
+  white-space:nowrap;flex-shrink:0;font-weight:500;transition:background .15s;
+}
+.h-drive-signin:hover{background:rgba(255,255,255,.22);}
+.h-drive-pic{width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(255,255,255,.5);object-fit:cover;flex-shrink:0;}
+.h-drive-init{
+  width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25);
+  color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;
+  border:1.5px solid rgba(255,255,255,.5);flex-shrink:0;
+}
+.h-drive-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1.5px solid rgba(0,0,0,.12);}
+.h-drive-dot.ds-idle{background:#9e9e9e;}
+.h-drive-dot.ds-loading,.h-drive-dot.ds-syncing{background:#ffc107;animation:ds-pulse .8s ease-in-out infinite;}
+.h-drive-dot.ds-ok{background:#4caf50;}
+.h-drive-dot.ds-error{background:#f44336;}
+@keyframes ds-pulse{0%,100%{opacity:1;}50%{opacity:.25;}}
+.h-drive-out{
+  background:none;border:none;color:rgba(255,255,255,.65);cursor:pointer;
+  padding:2px 3px;font-size:13px;line-height:1;transition:color .15s;flex-shrink:0;
+}
+.h-drive-out:hover{color:#fff;}
 `;
 
 // ═══════════════════════════════════════════════════════════════
@@ -863,6 +948,19 @@ export default function App() {
   const [jsonImportConfirm, setJsonImportConfirm] = useState(null); // {obj, fileName}
   const [csvImportTable,    setCsvImportTable]    = useState("parts");
   const [csvImportPreview,  setCsvImportPreview]  = useState(null); // {key, rows}
+
+  // Google Drive 同期
+  const [driveUser,     setDriveUser]     = useState(null);    // {name, email, picture} サインイン中は非null
+  const [driveStatus,   setDriveStatus]   = useState('idle');  // idle|loading|syncing|ok|error
+  const [driveLastSync, setDriveLastSync] = useState(null);
+  const [driveFileId,   setDriveFileId]   = useLS('as_drive_file_id', null);
+  // mutable な Drive 状態をまとめて管理（stale closure 対策）
+  const driveRef = useRef({
+    token: null, fileId: null, timer: null,
+    startupDone: false, skipSync: false,
+    tokenClient: null,
+    buildPayload: null, applyData: null,
+  });
 
   const tog = key => setOpen(p=>({...p,[key]:!p[key]}));
 
@@ -1096,6 +1194,149 @@ export default function App() {
     setCsvImportPreview(null);
     setImportFeedback({ type:"ok", msg:`${CSV_COLS[key].label}を${rows.length}件インポートしました（${mode==="overwrite"?"全置換":"マージ"}）` });
   };
+
+  // ── Google Drive 同期 ──────────────────────────────────────────
+
+  // 全データをシリアライズ（render ごとに最新版を driveRef に格納）
+  const buildDrivePayload = () => ({
+    version: 2,
+    lastSavedAt: new Date().toISOString(),
+    data: {
+      parts, purchases, disposals, processings, partUsages,
+      products, made, consignees, consignRecords, sales, channels,
+      partCatMaster, productCatMaster, partLocMaster,
+    },
+  });
+  driveRef.current.buildPayload = buildDrivePayload;
+
+  // Drive から読み込んだデータを全 state に適用
+  const applyDriveData = (d) => {
+    driveRef.current.skipSync = true; // この state 変化では自動保存をスキップ
+    if (Array.isArray(d.parts))            setParts(d.parts);
+    if (Array.isArray(d.purchases))        setPurchases(d.purchases);
+    if (Array.isArray(d.disposals))        setDisposals(d.disposals);
+    if (Array.isArray(d.processings))      setProcessings(d.processings);
+    if (Array.isArray(d.partUsages))       setPartUsages(d.partUsages);
+    if (Array.isArray(d.products))         setProducts(d.products);
+    if (Array.isArray(d.made))             setMade(d.made);
+    if (Array.isArray(d.consignees))       setConsignees(d.consignees);
+    if (Array.isArray(d.consignRecords))   setConsignRecords(d.consignRecords);
+    if (Array.isArray(d.sales))            setSales(d.sales);
+    if (Array.isArray(d.channels))         setChannels(d.channels);
+    if (Array.isArray(d.partCatMaster))    setPartCatMaster(d.partCatMaster);
+    if (Array.isArray(d.productCatMaster)) setProductCatMaster(d.productCatMaster);
+    if (Array.isArray(d.partLocMaster))    setPartLocMaster(d.partLocMaster);
+    localStorage.setItem('as_local_saved_at', new Date().toISOString());
+  };
+  driveRef.current.applyData = applyDriveData;
+
+  const handleDriveSignIn = () => {
+    driveRef.current.tokenClient?.requestAccessToken({ prompt: 'consent' });
+  };
+
+  const handleDriveSignOut = () => {
+    try { window.google?.accounts?.oauth2?.revoke(driveRef.current.token ?? '', () => { /* revoked */ }); } catch { /* ignore */ }
+    driveRef.current.token       = null;
+    driveRef.current.startupDone = false;
+    setDriveUser(null);
+    setDriveStatus('idle');
+  };
+
+  // Drive ファイルID の state → ref 同期
+  useEffect(() => { driveRef.current.fileId = driveFileId; }, [driveFileId]);
+
+  // GIS スクリプト読み込み（マウント時一回）
+  useEffect(() => {
+    if (!DRIVE_CLIENT_ID) return;
+    const script  = document.createElement('script');
+    script.src    = 'https://accounts.google.com/gsi/client';
+    script.async  = true;
+    script.onload = () => {
+      const ref = driveRef.current;
+      const tc  = window.google.accounts.oauth2.initTokenClient({
+        client_id: DRIVE_CLIENT_ID,
+        scope:     DRIVE_SCOPE,
+        callback:  async (resp) => {
+          if (resp.error) { setDriveStatus('error'); return; }
+          const token = resp.access_token;
+          ref.token = token;
+          // ユーザー情報取得
+          try {
+            const r    = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            const info = await r.json();
+            setDriveUser({ name: info.name, email: info.email, picture: info.picture });
+          } catch { /* ユーザー情報取得失敗は無視 */ }
+          // 起動時同期（初回サインインのみ）
+          if (!ref.startupDone) {
+            ref.startupDone = true;
+            setDriveStatus('loading');
+            try {
+              let fid = ref.fileId;
+              if (!fid) {
+                fid = await driveFindFile(token);
+                if (fid) { setDriveFileId(fid); ref.fileId = fid; }
+              }
+              const localTs = (() => {
+                try { return new Date(localStorage.getItem('as_local_saved_at') || 0).getTime(); } catch { return 0; }
+              })();
+              if (fid) {
+                const driveData = await driveReadFile(token, fid);
+                const driveTs   = driveData.lastSavedAt ? new Date(driveData.lastSavedAt).getTime() : 0;
+                if (driveTs >= localTs) {
+                  // Drive が新しい（または同じ）→ Local を上書き
+                  ref.applyData(driveData.data);
+                } else {
+                  // Local が新しい → Drive を上書き
+                  await driveWriteFile(token, fid, ref.buildPayload());
+                  localStorage.setItem('as_local_saved_at', new Date().toISOString());
+                }
+              } else {
+                // Drive にファイルなし → 新規作成
+                const newFid = await driveWriteFile(token, null, ref.buildPayload());
+                setDriveFileId(newFid); ref.fileId = newFid;
+                localStorage.setItem('as_local_saved_at', new Date().toISOString());
+              }
+              setDriveStatus('ok');
+              setDriveLastSync(new Date());
+            } catch (err) {
+              console.error('[Drive] 起動時同期エラー:', err);
+              setDriveStatus('error');
+            }
+          }
+        },
+      });
+      ref.tokenClient = tc;
+      // 前回サインイン済み（fileId が LS に残っている）なら自動サインイン試行
+      if (ref.fileId) tc.requestAccessToken({ prompt: '' });
+    };
+    document.head.appendChild(script);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // データ変更時に Drive へ自動保存（2 秒デバウンス）
+  useEffect(() => {
+    const ref = driveRef.current;
+    if (!ref.token) return;
+    if (ref.skipSync) { ref.skipSync = false; return; }
+    localStorage.setItem('as_local_saved_at', new Date().toISOString());
+    if (ref.timer) clearTimeout(ref.timer);
+    ref.timer = setTimeout(async () => {
+      setDriveStatus('syncing');
+      try {
+        const payload = ref.buildPayload();
+        const newFid  = await driveWriteFile(ref.token, ref.fileId, payload);
+        if (newFid !== ref.fileId) { setDriveFileId(newFid); ref.fileId = newFid; }
+        setDriveStatus('ok');
+        setDriveLastSync(new Date());
+      } catch (err) {
+        console.error('[Drive] 自動保存エラー:', err);
+        setDriveStatus('error');
+      }
+    }, 2000);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [parts, purchases, disposals, processings, partUsages, products, made,
+      consignees, consignRecords, sales, channels, partCatMaster, productCatMaster, partLocMaster]);
 
   // ── 在庫補充（ダッシュボードのアラートから仕入モーダルを開く） ──
   const openReplenish = (p) => {
@@ -1622,6 +1863,28 @@ export default function App() {
             <div className="h-logo">✦ Atelier Stock</div>
             <div className="h-sub">部品 管理システム</div>
           </div>
+          <div style={{display:"flex",alignItems:"center",gap:6}}>
+          {DRIVE_CLIENT_ID && (
+            driveUser ? (
+              <div className="h-drive-wrap">
+                {driveUser.picture
+                  ? <img src={driveUser.picture} className="h-drive-pic" alt={driveUser.name} title={driveUser.email}/>
+                  : <span className="h-drive-init" title={driveUser.email}>{driveUser.name?.[0]}</span>
+                }
+                <span
+                  className={`h-drive-dot ds-${driveStatus}`}
+                  title={driveLastSync ? `最終同期: ${driveLastSync.toLocaleTimeString("ja-JP")}` : ({idle:"待機中",loading:"読み込み中",syncing:"同期中",ok:"同期済み",error:"同期エラー"}[driveStatus]||"")}
+                />
+                <button className="h-drive-out" onClick={handleDriveSignOut} title="Drive同期をサインアウト">
+                  <i className="fal fa-sign-out-alt"/>
+                </button>
+              </div>
+            ) : (
+              <button className="h-drive-signin" onClick={handleDriveSignIn}>
+                <i className="fab fa-google"/>同期
+              </button>
+            )
+          )}
           <div style={{position:"relative"}}>
             <button className={`h-mgmt-btn${showMgmtMenu?" open":""}`} onClick={()=>setShowMgmtMenu(v=>!v)}>
               <i className="fal fa-cog"/>管理設定<i className={`fal fa-chevron-${showMgmtMenu?"up":"down"}`} style={{fontSize:9}}/>
@@ -1642,6 +1905,7 @@ export default function App() {
                 </div>
               </>
             )}
+          </div>
           </div>
         </div>
 
@@ -1683,7 +1947,7 @@ export default function App() {
                 {label:"売上記録",  icon:"fal fa-chart-line",  action:()=>setModal("sale")},
               ].map(b=>(
                 <button class="btn-quickaction" key={b.label}
-                  style={{flex:"1 1 auto",padding:"30px 25px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:18,cursor:"pointer",fontFamily:"inherit",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
+                  style={{flex:"1 1 auto",padding:"30px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:18,cursor:"pointer",fontFamily:"inherit",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
                   onClick={b.action}>
                   <i className={b.icon} style={{display:"block",fontSize:30,marginBottom:8,color:"var(--ac)"}}/>
                   {b.label}
