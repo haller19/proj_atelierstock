@@ -122,14 +122,16 @@ const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss
 // ─── CSV / JSON データ管理ヘルパー ────────────────────────────────
 const CSV_COLS = {
   parts:         { label:"部品マスター",    cols:["id","cat","name","variant","unit","hinban","minStock","type","parentId","location"],                     headers:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所"],                jsonCols:[] },
-  purchases:     { label:"仕入記録",        cols:["id","partId","date","supplier","qty","unitPrice","note"],                                                  headers:["ID","部品ID","日付","仕入先","数量","単価","メモ"],                                                     jsonCols:[] },
+  purchases:     { label:"仕入記録",        cols:["id","partId","date","supplier","qty","totalPrice","unitPrice","note"],                                       headers:["ID","部品ID","日付","仕入先","部品数量","実購入額(税込)","単価(税抜)","メモ"],                          jsonCols:[] },
   disposals:     { label:"廃棄記録",        cols:["id","partId","date","qty","reason"],                                                                       headers:["ID","部品ID","日付","数量","理由"],                                                                    jsonCols:[] },
   processings:   { label:"加工記録",        cols:["id","date","inputPartId","inputQty","outputs","lossQty","note"],                                           headers:["ID","日付","母材ID","使用量","切り出し結果(JSON)","ロス量","メモ"],                                      jsonCols:["outputs"] },
   products:      { label:"作品マスター",    cols:["id","name","desc","cat","ingredients","shippingCost","laborCost"],                                         headers:["ID","名前","説明","カテゴリ","材料(JSON)","梱包送料","人件費"],                                          jsonCols:["ingredients"] },
   made:          { label:"制作記録",        cols:["id","productId","date","qty","note"],                                                                       headers:["ID","作品ID","日付","数量","メモ"],                                                                    jsonCols:[] },
   consignees:    { label:"委託先マスター",  cols:["id","name","address","memo"],                                                                               headers:["ID","名前","住所","メモ"],                                                                             jsonCols:[] },
   consignRecords:{ label:"委託記録",        cols:["id","productId","consigneeId","date","type","qty","salePrice","feeRate","memo"],                            headers:["ID","作品ID","委託先ID","日付","種別","数量","販売価格","手数料率","メモ"],                              jsonCols:[] },
-  sales:         { label:"売上記録",        cols:["id","productId","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"],        headers:["ID","作品ID","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"],                   jsonCols:[] },
+  sales:         { label:"売上記録",        cols:["id","productId","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"],        headers:["ID","作品ID","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"],                   jsonCols:[],
+                   exportCols:   ["id","productId","productName","date","channel","qty","price","shippingActual","memo","feeRate","consignMemo"],
+                   exportHeaders:["ID","作品ID","作品名","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録メモ"] },
   channels:      { label:"チャネルマスター",cols:["id","name","feeRate","color"],                                                                              headers:["ID","名前","手数料率","カラー"],                                                                       jsonCols:[] },
   partUsages:    { label:"部品使用記録",    cols:["id","madeId","partId","date","qty","type"],                                                                 headers:["ID","制作記録ID","部品ID","日付","数量","タイプ"],                                                      jsonCols:[] },
 };
@@ -201,7 +203,7 @@ function csvRowsToObjects(rows, colDef) {
         try { val = val ? JSON.parse(val) : []; } catch { val = []; }
       } else if (col === "id" || col === "partId" || col === "productId" || col === "consigneeId" || col === "parentId" || col === "madeId" || col === "inputPartId" || col === "consignRecordId") {
         val = val === "" ? undefined : Number(val);
-      } else if (col === "qty" || col === "unitPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock") {
+      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock") {
         val = val === "" ? undefined : Number(val);
       }
       if (val !== undefined && val !== "") obj[col] = val;
@@ -1008,9 +1010,21 @@ export default function App() {
   };
 
   const handleExportCSV = (key) => {
-    const def  = CSV_COLS[key];
-    const rows = dataValueMap()[key] ?? [];
-    downloadBlob(buildCSV(rows, def.cols, def.headers), `as_${key}_${today()}.csv`, "text/csv;charset=utf-8");
+    const def = CSV_COLS[key];
+    let rows  = dataValueMap()[key] ?? [];
+    // 売上記録：作品名・委託記録メモを付与（CSV可読性向上）
+    if (key === "sales") {
+      rows = rows.map(s => ({
+        ...s,
+        productName: products.find(p => p.id === s.productId)?.name ?? "",
+        consignMemo: s.consignRecordId != null
+          ? (consignRecords.find(r => r.id === s.consignRecordId)?.memo ?? "")
+          : "",
+      }));
+    }
+    const cols    = def.exportCols    ?? def.cols;
+    const headers = def.exportHeaders ?? def.headers;
+    downloadBlob(buildCSV(rows, cols, headers), `as_${key}_${today()}.csv`, "text/csv;charset=utf-8");
   };
 
   const handleJSONFileChange = (e) => {
@@ -1114,7 +1128,8 @@ export default function App() {
     setPf({partId:"",date:today(),supplier:"",qty:"",totalPrice:"",note:""});
   };
   const openEditPurchase = (pu)=>{
-    const totalPrice = Math.round(pu.qty * pu.unitPrice * 1.1);
+    // 新形式は totalPrice を直接保存。旧データは unitPrice から逆算
+    const totalPrice = pu.totalPrice != null ? pu.totalPrice : Math.round(pu.qty * pu.unitPrice * 1.1);
     const partCat = parts.find(p=>p.id===pu.partId)?.cat || "";
     setPfCat(partCat);
     setPf({ partId:String(pu.partId), date:pu.date, supplier:pu.supplier, qty:String(pu.qty), totalPrice:String(totalPrice), note:pu.note });
@@ -1128,9 +1143,9 @@ export default function App() {
     const totalPrice = +pf.totalPrice;
     const unitPrice = Math.round(totalPrice / qty / 1.1 * 100) / 100;
     if(editingPurchaseId) {
-      setPurchases(ps=>ps.map(pu=>pu.id===editingPurchaseId ? {...pu,partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note} : pu));
+      setPurchases(ps=>ps.map(pu=>pu.id===editingPurchaseId ? {...pu,partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,totalPrice,note:pf.note} : pu));
     } else {
-      setPurchases(p=>[...p,{id:nextId(),partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,note:pf.note}]);
+      setPurchases(p=>[...p,{id:nextId(),partId:+pf.partId,date:pf.date,supplier:pf.supplier,qty,unitPrice,totalPrice,note:pf.note}]);
     }
     closePurchaseModal();
   };
@@ -2417,7 +2432,7 @@ export default function App() {
                 )}
               </div>
               <div className="fr2">
-                <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="0" value={pf.qty} onChange={e=>setPf(f=>({...f,qty:e.target.value}))}/></div>
+                <div className="fr"><label className="fl">部品数量 *</label><input className="fi" type="number" placeholder="0" value={pf.qty} onChange={e=>setPf(f=>({...f,qty:e.target.value}))}/></div>
                 <div className="fr"><label className="fl">実購入額（税込・円）*</label><input className="fi" type="number" placeholder="0" value={pf.totalPrice} onChange={e=>setPf(f=>({...f,totalPrice:e.target.value}))}/></div>
               </div>
               {pf.qty&&pf.totalPrice && (()=>{
@@ -3172,14 +3187,14 @@ export default function App() {
                   {[...purchases].reverse().map(pu=>{
                     const p=parts.find(pt=>pt.id===pu.partId);
                     const unitPriceWithTax = pu.unitPrice * 1.1;
-                    const totalPrice = pu.qty * pu.unitPrice * 1.1;
+                    const totalPrice = pu.totalPrice ?? Math.round(pu.qty * pu.unitPrice * 1.1);
                     return (
                       <div className="rc" key={pu.id}>
                         <div className="rc-top">
                           <div><div className="rc-name">{p?.name||"—"}</div><div className="rc-meta">{p?.variant} · {pu.date} · <i className="fal fa-box" style={{marginRight:3}}/>{pu.supplier}</div></div>
                           <div>
                             <div className="rc-amt">¥{fmtD(unitPriceWithTax)}/{p?.unit}（税込）</div>
-                            <div className="rc-qty">×{pu.qty} = ¥{fmt(totalPrice)}</div>
+                            <div className="rc-qty">部品数量 {pu.qty} = ¥{fmt(totalPrice)}（税込）</div>
                             <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit",marginTop:4}} onClick={()=>openEditPurchase(pu)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
                           </div>
                         </div>
