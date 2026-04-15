@@ -119,6 +119,98 @@ const parseFraction = (str) => {
 };
 const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss:"var(--low)", sale:"var(--ok)" };
 
+// ─── CSV / JSON データ管理ヘルパー ────────────────────────────────
+const CSV_COLS = {
+  parts:         { label:"部品マスター",    cols:["id","cat","name","variant","unit","hinban","minStock","type","parentId","location"],                     headers:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所"],                jsonCols:[] },
+  purchases:     { label:"仕入記録",        cols:["id","partId","date","supplier","qty","unitPrice","note"],                                                  headers:["ID","部品ID","日付","仕入先","数量","単価","メモ"],                                                     jsonCols:[] },
+  disposals:     { label:"廃棄記録",        cols:["id","partId","date","qty","reason"],                                                                       headers:["ID","部品ID","日付","数量","理由"],                                                                    jsonCols:[] },
+  processings:   { label:"加工記録",        cols:["id","date","inputPartId","inputQty","outputs","lossQty","note"],                                           headers:["ID","日付","母材ID","使用量","切り出し結果(JSON)","ロス量","メモ"],                                      jsonCols:["outputs"] },
+  products:      { label:"作品マスター",    cols:["id","name","desc","cat","ingredients","shippingCost","laborCost"],                                         headers:["ID","名前","説明","カテゴリ","材料(JSON)","梱包送料","人件費"],                                          jsonCols:["ingredients"] },
+  made:          { label:"制作記録",        cols:["id","productId","date","qty","note"],                                                                       headers:["ID","作品ID","日付","数量","メモ"],                                                                    jsonCols:[] },
+  consignees:    { label:"委託先マスター",  cols:["id","name","address","memo"],                                                                               headers:["ID","名前","住所","メモ"],                                                                             jsonCols:[] },
+  consignRecords:{ label:"委託記録",        cols:["id","productId","consigneeId","date","type","qty","salePrice","feeRate","memo"],                            headers:["ID","作品ID","委託先ID","日付","種別","数量","販売価格","手数料率","メモ"],                              jsonCols:[] },
+  sales:         { label:"売上記録",        cols:["id","productId","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"],        headers:["ID","作品ID","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"],                   jsonCols:[] },
+  channels:      { label:"チャネルマスター",cols:["id","name","feeRate","color"],                                                                              headers:["ID","名前","手数料率","カラー"],                                                                       jsonCols:[] },
+  partUsages:    { label:"部品使用記録",    cols:["id","madeId","partId","date","qty","type"],                                                                 headers:["ID","制作記録ID","部品ID","日付","数量","タイプ"],                                                      jsonCols:[] },
+};
+
+function csvCell(v) {
+  if (v == null) return "";
+  const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+  if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function buildCSV(rows, cols, headers) {
+  const lines = [headers.map(h => csvCell(h)).join(",")];
+  for (const row of rows) {
+    lines.push(cols.map(c => csvCell(row[c])).join(","));
+  }
+  return "\uFEFF" + lines.join("\r\n");
+}
+
+function downloadBlob(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function parseCSVText(text) {
+  const t = text.replace(/^\uFEFF/, "");
+  const rows = []; let row = [], cell = "", inQ = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (inQ) {
+      if (c === '"' && t[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') { inQ = false; }
+      else { cell += c; }
+    } else {
+      if      (c === '"')  { inQ = true; }
+      else if (c === ',')  { row.push(cell); cell = ""; }
+      else if (c === '\r') { /* skip */ }
+      else if (c === '\n') { row.push(cell); rows.push(row); row = []; cell = ""; }
+      else                 { cell += c; }
+    }
+  }
+  if (row.length || cell) { row.push(cell); rows.push(row); }
+  // 末尾の空行を除去
+  while (rows.length && rows[rows.length-1].every(c=>c==="")) rows.pop();
+  return rows;
+}
+
+function csvRowsToObjects(rows, colDef) {
+  if (rows.length < 2) return [];
+  const hdr = rows[0];
+  const colIdx = colDef.cols.map(col => {
+    const hi = hdr.indexOf(col);
+    // ヘッダーが日本語の場合も対応
+    return hi >= 0 ? hi : colDef.headers.indexOf(colDef.headers[colDef.cols.indexOf(col)]) >= 0
+      ? hdr.indexOf(colDef.headers[colDef.cols.indexOf(col)])
+      : -1;
+  });
+  return rows.slice(1).map(row => {
+    const obj = {};
+    colDef.cols.forEach((col, i) => {
+      const idx = colIdx[i];
+      let val = idx >= 0 ? (row[idx] ?? "") : "";
+      if (colDef.jsonCols.includes(col)) {
+        try { val = val ? JSON.parse(val) : []; } catch { val = []; }
+      } else if (col === "id" || col === "partId" || col === "productId" || col === "consigneeId" || col === "parentId" || col === "madeId" || col === "inputPartId" || col === "consignRecordId") {
+        val = val === "" ? undefined : Number(val);
+      } else if (col === "qty" || col === "unitPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock") {
+        val = val === "" ? undefined : Number(val);
+      }
+      if (val !== undefined && val !== "") obj[col] = val;
+      else if (val === "") obj[col] = "";
+    });
+    return obj;
+  });
+}
+
 // ─── ユーティリティ ───────────────────────────────────────────
 const fmt  = n => Math.round(Number(n)).toLocaleString("ja-JP");
 const fmtD = n => Number(n).toFixed(1);
@@ -328,6 +420,29 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 }
 .mgmt-ph-title{font-family:'DM Serif Display',serif;color:#fff;font-size:20px;}
 .mgmt-ph-back{background:none;border:none;color:#fff;cursor:pointer;font-size:20px;padding:0;display:flex;align-items:center;line-height:1;}
+
+/* ─── DATA MANAGEMENT PAGE ─── */
+.dm-section{margin-bottom:24px;}
+.dm-section-title{font-size:13px;font-weight:700;color:var(--md-osv);text-transform:uppercase;letter-spacing:.6px;margin-bottom:10px;}
+.dm-row{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--md-sc0);border:1px solid var(--md-olv);border-radius:var(--r);margin-bottom:6px;}
+.dm-row-label{font-size:13px;color:var(--md-osf);display:flex;align-items:center;gap:8px;}
+.dm-row-label i{color:var(--md-p);width:16px;text-align:center;}
+.dm-btn-sm{font-size:12px;padding:5px 14px;border-radius:var(--r-xl);border:none;cursor:pointer;font-family:inherit;font-weight:600;white-space:nowrap;transition:opacity .15s;}
+.dm-btn-sm:active{opacity:.7;}
+.dm-btn-exp{background:var(--md-pc);color:var(--md-opc);}
+.dm-btn-imp{background:var(--md-sec-c);color:var(--md-osec);}
+.dm-btn-danger{background:var(--md-ec);color:var(--md-e);}
+.dm-feedback{padding:10px 14px;border-radius:var(--r);font-size:13px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.dm-feedback.ok{background:#e8f5e9;color:#2e7d32;}
+.dm-feedback.err{background:var(--md-ec);color:var(--md-e);}
+.dm-confirm{background:var(--md-sc1);border:1px solid var(--md-olv);border-radius:var(--r-lg);padding:14px;margin-bottom:12px;}
+.dm-confirm-msg{font-size:13px;color:var(--md-osf);margin-bottom:12px;line-height:1.6;}
+.dm-confirm-btns{display:flex;gap:8px;justify-content:flex-end;}
+.dm-csv-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+.dm-import-form{background:var(--md-sc1);border:1px solid var(--md-olv);border-radius:var(--r-lg);padding:14px;}
+.dm-import-form select,.dm-import-form input[type=file]{width:100%;margin-bottom:10px;}
+.dm-file-label{display:block;padding:8px 12px;background:var(--md-sc0);border:1px dashed var(--md-ol);border-radius:var(--r);font-size:12px;color:var(--md-osv);cursor:pointer;text-align:center;}
+.dm-file-label:hover{background:var(--md-sc3);}
 
 /* ─── NAVIGATION BAR (MD3) ─── */
 .nav{
@@ -740,6 +855,12 @@ export default function App() {
   const [showNewProdCat,  setShowNewProdCat]  = useState(false);
   const [newProdCatInput, setNewProdCatInput] = useState("");
 
+  // データ管理（エクスポート/インポート）
+  const [importFeedback,    setImportFeedback]    = useState(null); // {type:"ok"|"err", msg}
+  const [jsonImportConfirm, setJsonImportConfirm] = useState(null); // {obj, fileName}
+  const [csvImportTable,    setCsvImportTable]    = useState("parts");
+  const [csvImportPreview,  setCsvImportPreview]  = useState(null); // {key, rows}
+
   const tog = key => setOpen(p=>({...p,[key]:!p[key]}));
 
   // ── チャネル derived ──────────────────────────────────────────
@@ -853,6 +974,113 @@ export default function App() {
     const profit = rev - cost*(+sf.qty) - fee - ship;
     return { rev, cost:cost*(+sf.qty), fee, ship, profit, feeRate };
   },[sf,productCostMap,chFeeMap]);
+
+  // ── データ管理：エクスポート/インポート ────────────────────────
+  const dataSetterMap = {
+    parts:          setParts,
+    purchases:      setPurchases,
+    disposals:      setDisposals,
+    processings:    setProcessings,
+    products:       setProducts,
+    made:           setMade,
+    consignees:     setConsignees,
+    consignRecords: setConsignRecords,
+    sales:          setSales,
+    channels:       setChannels,
+    partUsages:     setPartUsages,
+  };
+  const dataValueMap = () => ({
+    parts, purchases, disposals, processings,
+    products, made, consignees, consignRecords,
+    sales, channels, partUsages,
+  });
+
+  const handleExportJSON = () => {
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: {
+        ...dataValueMap(),
+        settings: { partCatMaster, productCatMaster, partLocMaster },
+      },
+    };
+    downloadBlob(JSON.stringify(payload, null, 2), `atelier-stock-${today()}.json`, "application/json");
+  };
+
+  const handleExportCSV = (key) => {
+    const def  = CSV_COLS[key];
+    const rows = dataValueMap()[key] ?? [];
+    downloadBlob(buildCSV(rows, def.cols, def.headers), `as_${key}_${today()}.csv`, "text/csv;charset=utf-8");
+  };
+
+  const handleJSONFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const obj = JSON.parse(ev.target.result);
+        if (!obj || !obj.data) throw new Error("フォーマット不正（dataキーが見つかりません）");
+        setJsonImportConfirm({ obj, fileName: file.name });
+        setImportFeedback(null);
+      } catch(err) {
+        setImportFeedback({ type:"err", msg:"JSONの読み込みに失敗: " + err.message });
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  };
+
+  const applyJSONImport = () => {
+    const d = jsonImportConfirm.obj.data;
+    Object.entries(dataSetterMap).forEach(([key, setter]) => {
+      if (Array.isArray(d[key])) setter(d[key]);
+    });
+    if (d.settings?.partCatMaster)    setPartCatMaster(d.settings.partCatMaster);
+    if (d.settings?.productCatMaster) setProductCatMaster(d.settings.productCatMaster);
+    if (d.settings?.partLocMaster)    setPartLocMaster(d.settings.partLocMaster);
+    setJsonImportConfirm(null);
+    setImportFeedback({ type:"ok", msg:"JSONデータをインポートしました（既存データを上書き）" });
+  };
+
+  const handleCSVFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    const def = CSV_COLS[csvImportTable];
+    if (!def) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const rows = parseCSVText(ev.target.result);
+        const objs = csvRowsToObjects(rows, def);
+        if (objs.length === 0) throw new Error("データが0件です（ヘッダー行のみ、または空ファイル）");
+        setCsvImportPreview({ key: csvImportTable, rows: objs, fileName: file.name });
+        setImportFeedback(null);
+      } catch(err) {
+        setImportFeedback({ type:"err", msg:"CSVの読み込みに失敗: " + err.message });
+      }
+    };
+    reader.readAsText(file, "utf-8");
+  };
+
+  const applyCSVImport = (mode) => {
+    // mode: "merge"（IDが同じなら上書き、なければ追加）| "overwrite"（テーブル全置き換え）
+    const { key, rows } = csvImportPreview;
+    const setter = dataSetterMap[key];
+    if (!setter) return;
+    if (mode === "overwrite") {
+      setter(rows);
+    } else {
+      setter(prev => {
+        const prevMap = new Map(prev.map(x => [x.id, x]));
+        rows.forEach(r => prevMap.set(r.id, r));
+        return [...prevMap.values()];
+      });
+    }
+    setCsvImportPreview(null);
+    setImportFeedback({ type:"ok", msg:`${CSV_COLS[key].label}を${rows.length}件インポートしました（${mode==="overwrite"?"全置換":"マージ"}）` });
+  };
 
   // ── 在庫補充（ダッシュボードのアラートから仕入モーダルを開く） ──
   const openReplenish = (p) => {
@@ -1391,6 +1619,9 @@ export default function App() {
                   </button>
                   <button className="mgmt-menu-item" onClick={()=>{setMgmtPage("category_setting");setShowMgmtMenu(false);}}>
                     <i className="fal fa-tag" style={{width:16,textAlign:"center"}}/>カテゴリ設定
+                  </button>
+                  <button className="mgmt-menu-item" onClick={()=>{setMgmtPage("data_manage");setShowMgmtMenu(false);setImportFeedback(null);setJsonImportConfirm(null);setCsvImportPreview(null);}}>
+                    <i className="fal fa-database" style={{width:16,textAlign:"center"}}/>データ管理
                   </button>
                 </div>
               </>
@@ -3011,6 +3242,126 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ════ 管理設定ページ: データ管理 ════ */}
+        {mgmtPage==="data_manage" && (
+          <div className="mgmt-page">
+            <div className="mgmt-ph">
+              <button className="mgmt-ph-back" onClick={()=>setMgmtPage(null)}><i className="fal fa-chevron-left"/></button>
+              <div className="mgmt-ph-title"><i className="fal fa-database" style={{marginRight:8}}/>データ管理</div>
+            </div>
+            <div style={{padding:"16px 14px"}}>
+
+              {/* フィードバック */}
+              {importFeedback && (
+                <div className={`dm-feedback ${importFeedback.type}`}>
+                  <i className={`fas ${importFeedback.type==="ok"?"fa-check-circle":"fa-exclamation-circle"}`}/>
+                  {importFeedback.msg}
+                  <button onClick={()=>setImportFeedback(null)} style={{marginLeft:"auto",background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:15,lineHeight:1}}><i className="fal fa-times"/></button>
+                </div>
+              )}
+
+              {/* ─── JSON 全データインポート確認 ─── */}
+              {jsonImportConfirm && (
+                <div className="dm-confirm">
+                  <div className="dm-confirm-msg">
+                    <strong><i className="fas fa-exclamation-triangle" style={{color:"var(--md-e)",marginRight:6}}/>既存データをすべて上書きします</strong><br/>
+                    ファイル: <code>{jsonImportConfirm.fileName}</code><br/>
+                    {Object.entries(jsonImportConfirm.obj.data)
+                      .filter(([,v])=>Array.isArray(v)&&v.length>0)
+                      .map(([key,v])=>`${CSV_COLS[key]?.label||key}: ${v.length}件`)
+                      .join(" / ")}
+                  </div>
+                  <div className="dm-confirm-btns">
+                    <button className="dm-btn-sm" style={{background:"var(--md-sc3)",color:"var(--md-osf)"}} onClick={()=>setJsonImportConfirm(null)}>キャンセル</button>
+                    <button className="dm-btn-sm dm-btn-danger" onClick={applyJSONImport}><i className="fas fa-upload" style={{marginRight:4}}/>上書きインポート実行</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── CSV インポート確認 ─── */}
+              {csvImportPreview && (
+                <div className="dm-confirm">
+                  <div className="dm-confirm-msg">
+                    <strong>{CSV_COLS[csvImportPreview.key].label}</strong> — <code>{csvImportPreview.fileName}</code> より <strong>{csvImportPreview.rows.length}件</strong> 読み込み済み<br/>
+                    <span style={{color:"var(--md-osv)",fontSize:12}}>マージ：IDが一致すれば上書き・なければ追加 / 全置換：テーブルを完全に差し替え</span>
+                  </div>
+                  <div className="dm-confirm-btns">
+                    <button className="dm-btn-sm" style={{background:"var(--md-sc3)",color:"var(--md-osf)"}} onClick={()=>setCsvImportPreview(null)}>キャンセル</button>
+                    <button className="dm-btn-sm dm-btn-imp" onClick={()=>applyCSVImport("merge")}><i className="fas fa-code-merge" style={{marginRight:4}}/>マージ</button>
+                    <button className="dm-btn-sm dm-btn-danger" onClick={()=>applyCSVImport("overwrite")}><i className="fas fa-retweet" style={{marginRight:4}}/>全置換</button>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── エクスポート ─── */}
+              <div className="dm-section">
+                <div className="dm-section-title"><i className="fal fa-download" style={{marginRight:6}}/>エクスポート</div>
+
+                {/* JSON 全データ */}
+                <div className="dm-row">
+                  <div className="dm-row-label"><i className="fal fa-file-code"/>全データ JSON バックアップ</div>
+                  <button className="dm-btn-sm dm-btn-exp" onClick={handleExportJSON}>
+                    <i className="fal fa-download" style={{marginRight:4}}/>JSON
+                  </button>
+                </div>
+
+                {/* CSV テーブル別 */}
+                <div style={{marginTop:10,marginBottom:6,fontSize:12,color:"var(--md-osv)"}}>テーブル別 CSV</div>
+                <div className="dm-csv-grid">
+                  {Object.entries(CSV_COLS).map(([key, def])=>(
+                    <div className="dm-row" key={key} style={{padding:"8px 10px"}}>
+                      <div className="dm-row-label" style={{fontSize:12}}><i className="fal fa-table"/>{def.label}</div>
+                      <button className="dm-btn-sm dm-btn-exp" style={{fontSize:11,padding:"4px 10px"}} onClick={()=>handleExportCSV(key)}>
+                        <i className="fal fa-download" style={{marginRight:3}}/>CSV
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─── インポート ─── */}
+              <div className="dm-section">
+                <div className="dm-section-title"><i className="fal fa-upload" style={{marginRight:6}}/>インポート</div>
+
+                {/* JSON 全データ */}
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:"var(--md-osf)"}}>JSON 全データ復元（上書き）</div>
+                  <div style={{fontSize:12,color:"var(--md-osv)",marginBottom:8}}>バックアップした JSON ファイルからすべてのデータを復元します。既存データは上書きされます。</div>
+                  <label className="dm-file-label">
+                    <i className="fal fa-file-import" style={{marginRight:6}}/>JSON ファイルを選択…
+                    <input type="file" accept=".json,application/json" style={{display:"none"}} onChange={handleJSONFileChange}/>
+                  </label>
+                </div>
+
+                {/* CSV テーブル別 */}
+                <div>
+                  <div style={{fontSize:13,fontWeight:600,marginBottom:6,color:"var(--md-osf)"}}>CSV インポート（テーブル別）</div>
+                  <div style={{fontSize:12,color:"var(--md-osv)",marginBottom:8}}>インポートするテーブルを選択し、対応する CSV ファイルを読み込みます。</div>
+                  <select className="fs" value={csvImportTable} onChange={e=>setCsvImportTable(e.target.value)} style={{marginBottom:10}}>
+                    {Object.entries(CSV_COLS).map(([key,def])=>(
+                      <option key={key} value={key}>{def.label}</option>
+                    ))}
+                  </select>
+                  <label className="dm-file-label">
+                    <i className="fal fa-file-csv" style={{marginRight:6}}/>CSV ファイルを選択…（{CSV_COLS[csvImportTable]?.label}）
+                    <input type="file" accept=".csv,text/csv" style={{display:"none"}} onChange={handleCSVFileChange}/>
+                  </label>
+                </div>
+              </div>
+
+              {/* ─── ヒント ─── */}
+              <div style={{fontSize:11,color:"var(--md-osv)",lineHeight:1.7,borderTop:"1px solid var(--md-olv)",paddingTop:12}}>
+                <strong>ヒント</strong><br/>
+                • JSON は全データを1ファイルにまとめたバックアップ。定期的に保存しておくと安心です。<br/>
+                • CSV は Excel で開いて内容確認・編集できます（UTF-8 BOM付き）。<br/>
+                • 材料・切り出し結果など配列項目は CSV セル内に JSON 文字列で保存されます。<br/>
+                • インポート前に必ず JSON バックアップを取ることをお勧めします。
+              </div>
+
             </div>
           </div>
         )}
