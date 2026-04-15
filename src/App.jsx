@@ -573,7 +573,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 .modal-title{font-family:'DM Serif Display',serif;font-size:20px;margin-bottom:14px;}
 .modal-sub{font-size:12px;color:var(--md-osv);margin-top:-8px;margin-bottom:13px;}
 .fr{margin-bottom:11px;}
-.fl{font-size:11px;color:var(--md-osv);margin-bottom:4px;display:block;font-weight:500;}
+.fl{font-size:14px;color:var(--md-osv);margin-bottom:4px;display:block;font-weight:500;}
 .fi,.fs{
   width:100%;padding:9px 12px;
   border:1px solid var(--md-ol);border-radius:var(--r-sm);
@@ -1428,15 +1428,15 @@ export default function App() {
               </div>
             )}
             {/* クイックアクションボタン */}
-            <div style={{display:"flex",gap:6,marginBottom:13,flexWrap:"wrap"}}>
+            <div class="sc-quickaction" style={{display:"flex",gap:6,marginBottom:13,flexWrap:"wrap"}}>
               {[
                 {label:"仕入記録",  icon:"fal fa-cart-plus",   action:()=>setModal("purchase")},
-                {label:"加工記録",  icon:"fal fa-scissors",    action:()=>setModal("processing")},
+                {label:"加工記録",  icon:"fal fa-cut",    action:()=>setModal("processing")},
                 {label:"作品記録",  icon:"fal fa-gem",         action:()=>setModal("made")},
                 {label:"売上記録",  icon:"fal fa-chart-line",  action:()=>setModal("sale")},
               ].map(b=>(
-                <button key={b.label}
-                  style={{flex:"1 1 auto",padding:"8px 4px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:11,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
+                <button class="btn-quickaction" key={b.label}
+                  style={{flex:"1 1 auto",padding:"30px 25px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:18,cursor:"pointer",fontFamily:"inherit",display:"flex",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
                   onClick={b.action}>
                   <i className={b.icon} style={{color:"var(--ac)"}}/>
                   {b.label}
@@ -1582,7 +1582,10 @@ export default function App() {
                         )}
                         <div style={{marginTop:6,display:"flex",gap:5,flexWrap:"wrap"}}>
                           <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
-                          {p.type!=="part" && <button style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>仕入</button>}
+                          {p.type==="part"
+                            ? <button style={{background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openStockCreate(p)}><i className="fal fa-scissors" style={{marginRight:4}}/>加工</button>
+                            : <button style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>仕入</button>
+                          }
                           <button style={{background:"none",color:"var(--low)",border:"1px solid var(--low)",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>{setDf({partId:String(p.id),date:today(),qty:"",reason:""});setEditingDisposalId(null);setModal("disposal");}}><i className="fal fa-trash" style={{marginRight:4}}/>廃棄</button>
                         </div>
                       </div>
@@ -1590,7 +1593,7 @@ export default function App() {
                         <div className={`psn ${st}`}>{stock}</div>
                         <div className="psu">{p.unit}</div>
                         <div className="psm">最低 {partMinStock(p)}</div>
-                        <span className={`sbadge ${st}`}>{st==="low"?"要発注":st==="warn"?"少なめ":"良好"}</span>
+                        <span className={`sbadge ${st}`}>{st==="low"?(p.type==="part"?"要加工":"要発注"):st==="warn"?"少なめ":"良好"}</span>
                       </div>
                     </div>
                   </div>
@@ -1859,11 +1862,11 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ 素材加工 ════ */}
+        {/* ════ 素材加工履歴 ════ */}
         {tab==="records" && (
           <div className="sec">
-            <div className="sec-title">素材加工</div>
-            {processings.length===0 && <div className="empty">加工記録はありません</div>}
+            <div className="sec-title">素材加工履歴</div>
+            {processings.length===0 && <div className="empty">加工記録の履歴はありません</div>}
             {(()=>{
               // 母材ごとにグループ化（親素材の親子関係でソート）
               const sorted = [...processings].sort((a,b)=>b.date.localeCompare(a.date));
@@ -1921,11 +1924,11 @@ export default function App() {
           </div>
         )}
 
-        {/* ════ 売上 ════ */}
+        {/* ════ 売上一覧 ════ */}
         {tab==="sales" && (
           <div className="sec">
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-              <div className="sec-title" style={{marginBottom:0}}>売上記録</div>
+              <div className="sec-title" style={{marginBottom:0}}>売上一覧</div>
               <select className="fs" style={{width:"auto",fontSize:13,padding:"5px 10px"}}
                 value={selectedYear}
                 onChange={e=>{setSelectedYear(e.target.value);setSelectedChannel(null);}}>
@@ -1997,7 +2000,7 @@ export default function App() {
           {[
             { id:"dashboard", icon:"fal fa-home",       label:"HOME" },
             { id:"parts",     icon:"fal fa-boxes",      label:"部品在庫" },
-            { id:"records",   icon:"fal fa-scissors",   label:"素材加工" },
+            { id:"records",   icon:"fal fa-cut",   label:"素材加工" },
             { id:"prodstock", icon:"fal fa-gem",        label:"作品" },
             { id:"consign",   icon:"fal fa-store",      label:"委託" },
             { id:"sales",     icon:"fal fa-chart-line", label:"売上" },
