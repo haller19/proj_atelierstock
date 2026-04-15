@@ -214,8 +214,9 @@ function csvRowsToObjects(rows, colDef) {
 }
 
 // ─── ユーティリティ ───────────────────────────────────────────
-const fmt  = n => Math.round(Number(n)).toLocaleString("ja-JP");
-const fmtD = n => Number(n).toFixed(1);
+const fmt      = n => Math.round(Number(n)).toLocaleString("ja-JP");
+const fmtD     = n => Number(n).toFixed(1);
+const fmtStock = n => parseFloat(Number(n).toFixed(2)); // 小数点以下2桁・四捨五入・末尾ゼロ除去
 const pct  = (a,b) => b===0?0:Math.round((a/b)*100);
 
 function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined) {
@@ -1659,7 +1660,7 @@ export default function App() {
                       <span>
                         {p.name}（{p.variant}）
                         {p.type && <span style={{fontSize:9,marginLeft:4,padding:"1px 5px",borderRadius:4,background:"var(--s2)",color:"var(--ac)",border:"1px solid var(--bd)"}}>{isMiddle?"中間材":"母材"}</span>}
-                        　残 <strong>{stock}{p.unit}</strong> / 最低 {partMinStock(p)}{p.unit}
+                        　残 <strong>{fmtStock(stock)}{p.unit}</strong> / 最低 {partMinStock(p)}{p.unit}
                       </span>
                       {isMiddle ? (
                         <button style={{flexShrink:0,fontSize:11,fontWeight:700,background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,padding:"3px 10px",cursor:"pointer",fontFamily:"inherit"}}
@@ -1823,7 +1824,7 @@ export default function App() {
                             <div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
                               <div style={{height:"100%",width:`${stockPct}%`,background:stockPct>50?"var(--ok)":stockPct>20?"var(--warn)":"var(--low)",borderRadius:3,transition:"width .3s"}}/>
                             </div>
-                            <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{stock}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
+                            <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{fmtStock(stock)}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
                           </div>
                         )}
                         <div style={{marginTop:6,display:"flex",gap:5,flexWrap:"wrap"}}>
@@ -1836,7 +1837,7 @@ export default function App() {
                         </div>
                       </div>
                       <div className="psb">
-                        <div className={`psn ${st}`}>{stock}</div>
+                        <div className={`psn ${st}`}>{fmtStock(stock)}</div>
                         <div className="psu">{p.unit}</div>
                         <div className="psm">最低 {partMinStock(p)}</div>
                         <span className={`sbadge ${st}`}>{st==="low"?(p.type==="part"?"要加工":"要発注"):st==="warn"?"少なめ":"良好"}</span>
@@ -2485,7 +2486,7 @@ export default function App() {
               <div className="fr"><label className="fl">部品 *</label>
                 <select className="fs" value={df.partId} onChange={e=>setDf(f=>({...f,partId:e.target.value}))}>
                   <option value="">選択してください</option>
-                  {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）　残{stock}{p.unit}</option>; })}
+                  {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）　残{fmtStock(stock)}{p.unit}</option>; })}
                 </select>
               </div>
               <div className="fr2">
@@ -2523,7 +2524,7 @@ export default function App() {
                     <option value="">選択してください</option>
                     {parts.filter(p=>p.type==="material").map(p=>{
                       const {stock}=partStockMap[p.id]||{stock:0};
-                      return <option key={p.id} value={p.id}>{p.name}（{p.variant}） 残{stock}{p.unit}</option>;
+                      return <option key={p.id} value={p.id}>{p.name}（{p.variant}） 残{fmtStock(stock)}{p.unit}</option>;
                     })}
                   </select>
                 )}
@@ -2540,10 +2541,10 @@ export default function App() {
               </div>
               {procStockPreview && procStockPreview.after!==null && (
                 <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"7px 12px",marginBottom:8,fontSize:12}}>
-                  <span style={{color:"var(--t2)"}}>現在在庫 {procStockPreview.current}{procStockPreview.unit}</span>
+                  <span style={{color:"var(--t2)"}}>現在在庫 {fmtStock(procStockPreview.current)}{procStockPreview.unit}</span>
                   <span style={{margin:"0 6px",color:"var(--t2)"}}>→</span>
                   <span style={{fontWeight:700,color:procStockPreview.insufficient?"var(--low)":"var(--ok)"}}>
-                    使用後 {Math.round(procStockPreview.after*1000)/1000}{procStockPreview.unit}
+                    使用後 {fmtStock(procStockPreview.after)}{procStockPreview.unit}
                     {procStockPreview.insufficient&&<> <i className="fas fa-exclamation-triangle" style={{marginLeft:4}}/>在庫不足</>}
                   </span>
                 </div>
@@ -2653,7 +2654,7 @@ export default function App() {
                   <div className="ing-row" key={i}>
                     <select className="fs" value={ep.partId} onChange={e=>setMf(f=>({...f,extraParts:f.extraParts.map((r,j)=>j===i?{...r,partId:e.target.value}:r)}))}>
                       <option value="">部品を選択</option>
-                      {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{stock}{p.unit}</option>; })}
+                      {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{fmtStock(stock)}{p.unit}</option>; })}
                     </select>
                     <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={ep.qty} onChange={e=>setMf(f=>({...f,extraParts:f.extraParts.map((r,j)=>j===i?{...r,qty:e.target.value}:r)}))}/>
                     {ep.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+ep.partId)?.unit}</span>}
@@ -2669,7 +2670,7 @@ export default function App() {
                   <div className="ing-row" key={i}>
                     <select className="fs" value={lp.partId} onChange={e=>setMf(f=>({...f,lossParts:f.lossParts.map((r,j)=>j===i?{...r,partId:e.target.value}:r)}))}>
                       <option value="">部品を選択</option>
-                      {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{stock}{p.unit}</option>; })}
+                      {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{fmtStock(stock)}{p.unit}</option>; })}
                     </select>
                     <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={lp.qty} onChange={e=>setMf(f=>({...f,lossParts:f.lossParts.map((r,j)=>j===i?{...r,qty:e.target.value}:r)}))}/>
                     {lp.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+lp.partId)?.unit}</span>}
