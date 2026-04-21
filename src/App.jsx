@@ -1147,7 +1147,7 @@ export default function App() {
   const applyJSONImport = () => {
     const d = jsonImportConfirm.obj.data;
     Object.entries(dataSetterMap).forEach(([key, setter]) => {
-      if (Array.isArray(d[key])) setter(d[key]);
+      if (Array.isArray(d[key])) setter(d[key].map(r => r.id ? r : { ...r, id: nextId() }));
     });
     if (d.settings?.partCatMaster)    setPartCatMaster(d.settings.partCatMaster);
     if (d.settings?.productCatMaster) setProductCatMaster(d.settings.productCatMaster);
@@ -1182,12 +1182,13 @@ export default function App() {
     const { key, rows } = csvImportPreview;
     const setter = dataSetterMap[key];
     if (!setter) return;
+    const assignedRows = rows.map(r => r.id ? r : { ...r, id: nextId() });
     if (mode === "overwrite") {
-      setter(rows);
+      setter(assignedRows);
     } else {
       setter(prev => {
         const prevMap = new Map(prev.map(x => [x.id, x]));
-        rows.forEach(r => prevMap.set(r.id, r));
+        assignedRows.forEach(r => prevMap.set(r.id, r));
         return [...prevMap.values()];
       });
     }
@@ -1717,6 +1718,13 @@ export default function App() {
     setShowNewCat(false);
     setEditingPartId(null);
     setModal(null);
+  };
+
+  const deletePart = (id) => {
+    if(confirm("この部品を削除しますか？\n関連する仕入・廃棄・使用記録は残ります。")) {
+      setParts(ps => ps.filter(p => p.id !== id));
+      closePartModal();
+    }
   };
 
   // ── 加工記録 ──────────────────────────────────────────────────
@@ -2645,6 +2653,7 @@ export default function App() {
               <div className="div"/>
               <button className="btn-p" onClick={addPart}>{editingPartId ? "保存する" : "登録する"}</button>
               <button className="btn-c" onClick={closePartModal}>キャンセル</button>
+              {editingPartId && <button className="btn-d" onClick={()=>deletePart(editingPartId)}>この部品を削除する</button>}
             </div>
           </div>
         )}

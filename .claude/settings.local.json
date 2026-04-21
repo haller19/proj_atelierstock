@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const data=JSON.parse\\(fs.readFileSync\\('c:/Users/zipza/Downloads/atelier-stock-2026-04-15 \\(2\\).json','utf8'\\)\\); const parts=data.data?.parts||[]; console.log\\('Total parts:', parts.length\\); parts.forEach\\(\\(p,i\\)=>console.log\\(i, JSON.stringify\\(p\\)\\)\\);\")",
+      "Bash(node -e ':*)"
     ]
   }
 }
