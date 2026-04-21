@@ -225,6 +225,20 @@ const pct  = (a,b) => b===0?0:Math.round((a/b)*100);
 const DRIVE_CLIENT_ID = import.meta.env.VITE_DRIVE_CLIENT_ID ?? '';
 const DRIVE_FILE_NAME = 'atelier-stock-data.json';
 const DRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_TOKEN_KEY = 'as_drive_token';
+
+// sessionStorage にトークンをキャッシュ（約58分）
+const getCachedDriveToken = () => {
+  try {
+    const d = JSON.parse(sessionStorage.getItem(DRIVE_TOKEN_KEY) || 'null');
+    if (d && d.exp > Date.now()) return d.tok;
+    sessionStorage.removeItem(DRIVE_TOKEN_KEY);
+  } catch { /* ignore */ }
+  return null;
+};
+const setCachedDriveToken = (tok) =>
+  sessionStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ tok, exp: Date.now() + 3500_000 }));
+const clearCachedDriveToken = () => sessionStorage.removeItem(DRIVE_TOKEN_KEY);
 
 async function driveFetch(url, token, init = {}) {
   const { headers: extraHdrs, ...rest } = init;
@@ -1285,6 +1299,7 @@ export default function App() {
     try { window.google?.accounts?.oauth2?.revoke(driveRef.current.token ?? '', () => { /* revoked */ }); } catch { /* ignore */ }
     driveRef.current.token       = null;
     driveRef.current.startupDone = false;
+    clearCachedDriveToken();
     setDriveUser(null);
     setDriveStatus('idle');
   };
@@ -1295,70 +1310,94 @@ export default function App() {
   // GIS スクリプト読み込み（マウント時一回）
   useEffect(() => {
     if (!DRIVE_CLIENT_ID) return;
-    const script  = document.createElement('script');
-    script.src    = 'https://accounts.google.com/gsi/client';
-    script.async  = true;
-    script.onload = () => {
-      const ref = driveRef.current;
-      const tc  = window.google.accounts.oauth2.initTokenClient({
+    const ref = driveRef.current;
+    // StrictMode の二重実行・スクリプト二重ロードを防止
+    if (ref.gisLoaded) return;
+    ref.gisLoaded = true;
+
+    // トークン取得後の共通処理（キャッシュ経由・GIS コールバック共用）
+    const handleToken = async (token) => {
+      ref.token = token;
+      setCachedDriveToken(token);
+      // ユーザー情報取得
+      try {
+        const r    = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const info = await r.json();
+        setDriveUser({ name: info.name, email: info.email, picture: info.picture });
+      } catch { /* ユーザー情報取得失敗は無視 */ }
+      // 起動時同期（初回のみ）
+      if (!ref.startupDone) {
+        ref.startupDone = true;
+        setDriveStatus('loading');
+        try {
+          let fid = ref.fileId;
+          if (!fid) {
+            fid = await driveFindFile(token);
+            if (fid) { setDriveFileId(fid); ref.fileId = fid; }
+          }
+          const localTs = (() => {
+            try { return new Date(localStorage.getItem('as_local_saved_at') || 0).getTime(); } catch { return 0; }
+          })();
+          if (fid) {
+            const driveData = await driveReadFile(token, fid);
+            const driveTs   = driveData.lastSavedAt ? new Date(driveData.lastSavedAt).getTime() : 0;
+            if (driveTs >= localTs) {
+              ref.applyData(driveData.data);
+            } else {
+              await driveWriteFile(token, fid, ref.buildPayload());
+              localStorage.setItem('as_local_saved_at', new Date().toISOString());
+            }
+          } else {
+            const newFid = await driveWriteFile(token, null, ref.buildPayload());
+            setDriveFileId(newFid); ref.fileId = newFid;
+            localStorage.setItem('as_local_saved_at', new Date().toISOString());
+          }
+          setDriveStatus('ok');
+          setDriveLastSync(new Date());
+        } catch (err) {
+          console.error('[Drive] 起動時同期エラー:', err);
+          setDriveStatus('error');
+        }
+      }
+    };
+
+    const initGis = () => {
+      if (ref.tokenClient) return;
+      const tc = window.google.accounts.oauth2.initTokenClient({
         client_id: DRIVE_CLIENT_ID,
         scope:     DRIVE_SCOPE,
         callback:  async (resp) => {
           if (resp.error) { setDriveStatus('error'); return; }
-          const token = resp.access_token;
-          ref.token = token;
-          // ユーザー情報取得
-          try {
-            const r    = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            const info = await r.json();
-            setDriveUser({ name: info.name, email: info.email, picture: info.picture });
-          } catch { /* ユーザー情報取得失敗は無視 */ }
-          // 起動時同期（初回サインインのみ）
-          if (!ref.startupDone) {
-            ref.startupDone = true;
-            setDriveStatus('loading');
-            try {
-              let fid = ref.fileId;
-              if (!fid) {
-                fid = await driveFindFile(token);
-                if (fid) { setDriveFileId(fid); ref.fileId = fid; }
-              }
-              const localTs = (() => {
-                try { return new Date(localStorage.getItem('as_local_saved_at') || 0).getTime(); } catch { return 0; }
-              })();
-              if (fid) {
-                const driveData = await driveReadFile(token, fid);
-                const driveTs   = driveData.lastSavedAt ? new Date(driveData.lastSavedAt).getTime() : 0;
-                if (driveTs >= localTs) {
-                  // Drive が新しい（または同じ）→ Local を上書き
-                  ref.applyData(driveData.data);
-                } else {
-                  // Local が新しい → Drive を上書き
-                  await driveWriteFile(token, fid, ref.buildPayload());
-                  localStorage.setItem('as_local_saved_at', new Date().toISOString());
-                }
-              } else {
-                // Drive にファイルなし → 新規作成
-                const newFid = await driveWriteFile(token, null, ref.buildPayload());
-                setDriveFileId(newFid); ref.fileId = newFid;
-                localStorage.setItem('as_local_saved_at', new Date().toISOString());
-              }
-              setDriveStatus('ok');
-              setDriveLastSync(new Date());
-            } catch (err) {
-              console.error('[Drive] 起動時同期エラー:', err);
-              setDriveStatus('error');
-            }
-          }
+          await handleToken(resp.access_token);
         },
       });
       ref.tokenClient = tc;
-      // 前回サインイン済み（fileId が LS に残っている）なら自動サインイン試行
-      if (ref.fileId) tc.requestAccessToken({ prompt: '' });
+
+      // sessionStorage にキャッシュ済みトークンがあればダイアログなしで復元
+      const cached = getCachedDriveToken();
+      if (cached) {
+        handleToken(cached);
+      } else if (ref.fileId) {
+        // 前回サインイン済み（fileId が LS に残っている）なら自動サインイン試行
+        tc.requestAccessToken({ prompt: '' });
+      }
     };
-    document.head.appendChild(script);
+
+    if (window.google?.accounts?.oauth2) {
+      initGis();
+    } else {
+      const GIS_URL = 'https://accounts.google.com/gsi/client';
+      let script = document.querySelector(`script[src="${GIS_URL}"]`);
+      if (!script) {
+        script = document.createElement('script');
+        script.src   = GIS_URL;
+        script.async = true;
+        document.head.appendChild(script);
+      }
+      script.addEventListener('load', initGis);
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // データ変更時に Drive へ自動保存（2 秒デバウンス）
