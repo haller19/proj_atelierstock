@@ -121,17 +121,17 @@ const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss
 
 // ─── CSV / JSON データ管理ヘルパー ────────────────────────────────
 const CSV_COLS = {
-  parts:         { label:"部品マスター",    cols:["id","cat","name","variant","unit","hinban","minStock","type","parentId","location"],                     headers:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所"],                jsonCols:[] },
+  parts:         { label:"部品マスター",    cols:["id","cat","name","variant","unit","hinban","minStock","type","parentId","location","currentStock"],      headers:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所","現在庫数"],   jsonCols:[] },
   purchases:     { label:"仕入記録",        cols:["id","partId","date","supplier","qty","totalPrice","unitPrice","note"],                                       headers:["ID","部品ID","日付","仕入先","部品数量","実購入額(税込)","単価(税抜)","メモ"],                          jsonCols:[] },
   disposals:     { label:"廃棄記録",        cols:["id","partId","date","qty","reason"],                                                                       headers:["ID","部品ID","日付","数量","理由"],                                                                    jsonCols:[] },
   processings:   { label:"加工記録",        cols:["id","date","inputPartId","inputQty","outputs","lossQty","note"],                                           headers:["ID","日付","母材ID","使用量","切り出し結果(JSON)","ロス量","メモ"],                                      jsonCols:["outputs"] },
-  products:      { label:"作品マスター",    cols:["id","name","desc","cat","ingredients","shippingCost","laborCost"],                                         headers:["ID","名前","説明","カテゴリ","材料(JSON)","梱包送料","人件費"],                                          jsonCols:["ingredients"] },
+  products:      { label:"作品マスター",    cols:["id","name","desc","cat","ingredients","shippingCost","laborCost","currentStock"],                          headers:["ID","名前","説明","カテゴリ","材料(JSON)","梱包送料","人件費","現在庫数"],                               jsonCols:["ingredients"] },
   made:          { label:"制作記録",        cols:["id","productId","date","qty","note"],                                                                       headers:["ID","作品ID","日付","数量","メモ"],                                                                    jsonCols:[] },
   consignees:    { label:"委託先マスター",  cols:["id","name","address","memo"],                                                                               headers:["ID","名前","住所","メモ"],                                                                             jsonCols:[] },
   consignRecords:{ label:"委託記録",        cols:["id","productId","consigneeId","date","type","qty","salePrice","feeRate","memo"],                            headers:["ID","作品ID","委託先ID","日付","種別","数量","販売価格","手数料率","メモ"],                              jsonCols:[] },
-  sales:         { label:"売上記録",        cols:["id","productId","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"],        headers:["ID","作品ID","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"],                   jsonCols:[],
-                   exportCols:   ["id","productId","productName","date","channel","qty","price","shippingActual","memo","feeRate","consignMemo"],
-                   exportHeaders:["ID","作品ID","作品名","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録メモ"] },
+  sales:         { label:"売上記録",        cols:["id","productId","orderName","saleType","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"], headers:["ID","作品ID","オーダー品名","種別","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"], jsonCols:[],
+                   exportCols:   ["id","productId","orderName","saleType","productName","date","channel","qty","price","shippingActual","memo","feeRate","consignMemo"],
+                   exportHeaders:["ID","作品ID","オーダー品名","種別","作品名","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録メモ"] },
   channels:      { label:"チャネルマスター",cols:["id","name","feeRate","color"],                                                                              headers:["ID","名前","手数料率","カラー"],                                                                       jsonCols:[] },
   partUsages:    { label:"部品使用記録",    cols:["id","madeId","partId","date","qty","type"],                                                                 headers:["ID","制作記録ID","部品ID","日付","数量","タイプ"],                                                      jsonCols:[] },
 };
@@ -203,7 +203,7 @@ function csvRowsToObjects(rows, colDef) {
         try { val = val ? JSON.parse(val) : []; } catch { val = []; }
       } else if (col === "id" || col === "partId" || col === "productId" || col === "consigneeId" || col === "parentId" || col === "madeId" || col === "inputPartId" || col === "consignRecordId") {
         val = val === "" ? undefined : Number(val);
-      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock") {
+      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock" || col === "currentStock") {
         val = val === "" ? undefined : Number(val);
       }
       if (val !== undefined && val !== "") obj[col] = val;
@@ -277,12 +277,12 @@ async function driveWriteFile(token, fileId, payload) {
   return data.id;
 }
 
-function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined) {
+function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined, stockAdjustments=[]) {
   const disps   = disposals.filter(d=>d.partId===partId);
   const dispQty = disps.reduce((s,d)=>s+d.qty,0);
+  const adjQty  = stockAdjustments.filter(a=>a.partId===partId).reduce((s,a)=>s+a.adjustQty,0);
 
   if(type==="material") {
-    // 母材: 仕入累計 - 加工で使った量 - 廃棄累計
     const buys    = purchases.filter(p=>p.partId===partId);
     const totalQty = buys.reduce((s,p)=>s+p.qty,0);
     const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
@@ -290,11 +290,10 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
     const usedInProc = processings.filter(pr=>pr.inputPartId===partId).reduce((s,pr)=>s+pr.inputQty,0);
     const supMap = new Map();
     buys.forEach(p=>supMap.set(p.supplier,p.unitPrice));
-    return { stock: totalQty-usedInProc-dispQty, avgPrice, supMap };
+    return { stock: totalQty-usedInProc-dispQty+adjQty, avgPrice, supMap };
   }
 
   if(type==="part") {
-    // 中間材: 加工記録output累計 - 制作時使用累計 - 廃棄累計
     const usages  = partUsages.filter(u=>u.partId===partId);
     const usedQty = usages.reduce((s,u)=>s+u.qty,0);
     let totalOutputQty = 0;
@@ -303,7 +302,6 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
       const out = pr.outputs.find(o=>o.partId===partId);
       if(!out) return;
       totalOutputQty += out.qty;
-      // 入力材料の加重平均単価を計算して按分
       const inputBuys   = purchases.filter(p=>p.partId===pr.inputPartId);
       const inputTotQty = inputBuys.reduce((s,p)=>s+p.qty,0);
       const inputTotAmt = inputBuys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
@@ -313,10 +311,9 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
       totalCost += out.qty * costPerUnit;
     });
     const avgPrice = totalOutputQty>0 ? totalCost/totalOutputQty : 0;
-    return { stock: totalOutputQty-usedQty-dispQty, avgPrice, supMap:new Map() };
+    return { stock: totalOutputQty-usedQty-dispQty+adjQty, avgPrice, supMap:new Map() };
   }
 
-  // 通常部品（type:undefined）: 仕入累計 - 廃棄累計 - 制作時使用累計
   const buys    = purchases.filter(p=>p.partId===partId);
   const usages  = partUsages.filter(u=>u.partId===partId);
   const totalQty = buys.reduce((s,p)=>s+p.qty,0);
@@ -325,7 +322,7 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
   const avgPrice = totalQty>0 ? totalAmt/totalQty : 0;
   const supMap   = new Map();
   buys.forEach(p=>supMap.set(p.supplier,p.unitPrice));
-  return { stock: totalQty-dispQty-usedQty, avgPrice, supMap };
+  return { stock: totalQty-dispQty-usedQty+adjQty, avgPrice, supMap };
 }
 
 function calcProductCost(product, partStockMap, parts) {
@@ -341,13 +338,14 @@ function calcProductCost(product, partStockMap, parts) {
   return { breakdown, partCost, packCost, shippingCost:product.shippingCost, laborCost:product.laborCost, total };
 }
 
-// 作品の手元在庫 = 制作数 - 直販売上 - 委託納品 + 委託返品
-function calcProductStock(productId, made, sales, consignRecords) {
+// 作品の手元在庫 = 制作数 - 直販売上 - 委託納品 + 委託返品 + 棚卸調整
+function calcProductStock(productId, made, sales, consignRecords, productAdjustments=[]) {
   const madeQty    = made.filter(m=>m.productId===productId).reduce((s,m)=>s+m.qty,0);
   const soldQty    = sales.filter(s=>s.productId===productId).reduce((s,sale)=>s+sale.qty,0);
   const deliverQty = consignRecords.filter(r=>r.productId===productId&&r.type==="deliver").reduce((s,r)=>s+r.qty,0);
   const returnQty  = consignRecords.filter(r=>r.productId===productId&&r.type==="return").reduce((s,r)=>s+r.qty,0);
-  const hand = madeQty - soldQty - deliverQty + returnQty;
+  const adjQty     = productAdjustments.filter(a=>a.productId===productId).reduce((s,a)=>s+a.adjustQty,0);
+  const hand = madeQty - soldQty - deliverQty + returnQty + adjQty;
   return { madeQty, soldQty, deliverQty, returnQty, hand };
 }
 
@@ -896,6 +894,8 @@ export default function App() {
   const [partCatMaster,  setPartCatMaster]  = useLS("as_part_cats",       ["金具","チェーン","ビーズ","梱包材"]);
   const [productCatMaster,setProductCatMaster]= useLS("as_product_cats",  ["ピアス","イヤリング","ネックレス","ブレスレット","リング","その他"]);
   const [partLocMaster,  setPartLocMaster]  = useLS("as_part_locations",  ["棚A","棚B","引き出し"]);
+  const [stockAdjustments,   setStockAdjustments]   = useLS("as_stock_adjustments",   []);
+  const [productAdjustments, setProductAdjustments] = useLS("as_product_adjustments", []);
 
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
@@ -933,7 +933,8 @@ export default function App() {
   const [df,  setDf]  = useState({ partId:"",   date:today(),   qty:"",        reason:"" });
   const [editingPurchaseId,  setEditingPurchaseId]  = useState(null);
   const [editingDisposalId,  setEditingDisposalId]  = useState(null);
-  const [sf,  setSf]  = useState({ productId:"", date:today(),  channel:"Minne", qty:"1", price:"", shippingActual:"", memo:"" });
+  const SF_ITEM_INIT = { saleType:"product", productId:"", orderName:"", qty:"1", price:"", shippingActual:"" };
+  const [sf,  setSf]  = useState({ date:today(), channel:"Minne", memo:"", items:[{...SF_ITEM_INIT}] });
   const MF_INIT = { productId:"", date:today(), qty:"1", note:"", checkedParts:{}, extraParts:[], lossParts:[] };
   const [mf,  setMf]  = useState(MF_INIT);
   const [cf,  setCf]  = useState({ productId:"", consigneeId:"", date:today(), type:"deliver", qty:"1", salePrice:"", feeRate:"30", memo:"" });
@@ -971,9 +972,9 @@ export default function App() {
   // ── 計算 ──────────────────────────────────────────────────────
   const partStockMap = useMemo(()=>{
     const m={};
-    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages,processings,p.type); });
+    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages,processings,p.type,stockAdjustments); });
     return m;
-  },[parts,purchases,disposals,partUsages,processings]);
+  },[parts,purchases,disposals,partUsages,processings,stockAdjustments]);
 
   const productCostMap = useMemo(()=>{
     const m={};
@@ -983,9 +984,9 @@ export default function App() {
 
   const productStockMap = useMemo(()=>{
     const m={};
-    products.forEach(pr=>{ m[pr.id]=calcProductStock(pr.id,made,sales,consignRecords); });
+    products.forEach(pr=>{ m[pr.id]=calcProductStock(pr.id,made,sales,consignRecords,productAdjustments); });
     return m;
-  },[products,made,sales,consignRecords]);
+  },[products,made,sales,consignRecords,productAdjustments]);
 
   const partMinStock = (p) => p.minStock ?? MIN_STOCK[p.id] ?? 10;
 
@@ -1003,9 +1004,10 @@ export default function App() {
       return rs.length ? rs.reduce((mx,p)=>p.date>mx?p.date:mx,"") : "";
     };
     const sortFn = (a,b) => {
-      if(partSort==="name")   return dir * a.name.localeCompare(b.name,"ja");
-      if(partSort==="stock")  return dir * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
-      if(partSort==="update") return dir * lastDateOf(a.id).localeCompare(lastDateOf(b.id));
+      if(partSort==="name")     return dir * a.name.localeCompare(b.name,"ja");
+      if(partSort==="stock")    return dir * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
+      if(partSort==="update")   return dir * lastDateOf(a.id).localeCompare(lastDateOf(b.id));
+      if(partSort==="location") return dir * (a.location||"").localeCompare(b.location||"","ja");
       return 0;
     };
     // 中間材を除いたトップレベル（母材・通常）をソート
@@ -1064,36 +1066,42 @@ export default function App() {
     return selectedChannel ? sorted.filter(s=>s.channel===selectedChannel) : sorted;
   },[yearSales,selectedChannel]);
 
-  // 売上モーダル プレビュー
+  // 売上モーダル プレビュー（アイテム別）
   const salePreview = useMemo(()=>{
-    if(!sf.productId||!sf.price||!sf.qty) return null;
-    const cost = productCostMap[+sf.productId]?.total||0;
-    const rev  = +sf.price * +sf.qty;
     const feeRate = chFeeMap[sf.channel]??0;
-    const fee  = Math.round(+sf.price*(feeRate/100))*(+sf.qty);
-    const ship = (+sf.shippingActual||0)*(+sf.qty);
-    const profit = rev - cost*(+sf.qty) - fee - ship;
-    return { rev, cost:cost*(+sf.qty), fee, ship, profit, feeRate };
+    return sf.items.map(item=>{
+      if(!item.price||!item.qty) return null;
+      if(item.saleType!=="order"&&!item.productId) return null;
+      const cost = item.saleType!=="order" ? (productCostMap[+item.productId]?.total||0) : 0;
+      const rev  = +item.price * +item.qty;
+      const fee  = Math.round(+item.price*(feeRate/100))*(+item.qty);
+      const ship = (+item.shippingActual||0)*(+item.qty);
+      const profit = rev - cost*(+item.qty) - fee - ship;
+      return { rev, cost:cost*(+item.qty), fee, ship, profit, feeRate };
+    });
   },[sf,productCostMap,chFeeMap]);
 
   // ── データ管理：エクスポート/インポート ────────────────────────
   const dataSetterMap = {
-    parts:          setParts,
-    purchases:      setPurchases,
-    disposals:      setDisposals,
-    processings:    setProcessings,
-    products:       setProducts,
-    made:           setMade,
-    consignees:     setConsignees,
-    consignRecords: setConsignRecords,
-    sales:          setSales,
-    channels:       setChannels,
-    partUsages:     setPartUsages,
+    parts:              setParts,
+    purchases:          setPurchases,
+    disposals:          setDisposals,
+    processings:        setProcessings,
+    products:           setProducts,
+    made:               setMade,
+    consignees:         setConsignees,
+    consignRecords:     setConsignRecords,
+    sales:              setSales,
+    channels:           setChannels,
+    partUsages:         setPartUsages,
+    stockAdjustments:   setStockAdjustments,
+    productAdjustments: setProductAdjustments,
   };
   const dataValueMap = () => ({
     parts, purchases, disposals, processings,
     products, made, consignees, consignRecords,
     sales, channels, partUsages,
+    stockAdjustments, productAdjustments,
   });
 
   const handleExportJSON = () => {
@@ -1111,7 +1119,6 @@ export default function App() {
   const handleExportCSV = (key) => {
     const def = CSV_COLS[key];
     let rows  = dataValueMap()[key] ?? [];
-    // 売上記録：作品名・委託記録メモを付与（CSV可読性向上）
     if (key === "sales") {
       rows = rows.map(s => ({
         ...s,
@@ -1120,6 +1127,13 @@ export default function App() {
           ? (consignRecords.find(r => r.id === s.consignRecordId)?.memo ?? "")
           : "",
       }));
+    }
+    // 棚卸用：現在庫数を付与
+    if (key === "parts") {
+      rows = rows.map(p => ({ ...p, currentStock: fmtStock(partStockMap[p.id]?.stock ?? 0) }));
+    }
+    if (key === "products") {
+      rows = rows.map(p => ({ ...p, currentStock: productStockMap[p.id]?.hand ?? 0 }));
     }
     const cols    = def.exportCols    ?? def.cols;
     const headers = def.exportHeaders ?? def.headers;
@@ -1182,13 +1196,42 @@ export default function App() {
     const { key, rows } = csvImportPreview;
     const setter = dataSetterMap[key];
     if (!setter) return;
-    const assignedRows = rows.map(r => r.id ? r : { ...r, id: nextId() });
+    let assigned = rows.map(r => r.id ? r : { ...r, id: nextId() });
+
+    // 棚卸調整：現在庫数列が含まれる場合、差分を調整レコードとして積む
+    if (key === "parts") {
+      const newAdjs = [];
+      assigned.forEach(row => {
+        if (row.currentStock == null || isNaN(+row.currentStock)) return;
+        const partType = row.type || parts.find(p => p.id === row.id)?.type;
+        const { stock: cur } = calcPartStock(row.id, purchases, disposals, partUsages, processings, partType, stockAdjustments);
+        const delta = +row.currentStock - cur;
+        if (Math.abs(delta) > 0.0001) newAdjs.push({ id: nextId(), partId: row.id, date: today(), adjustQty: delta, note: "棚卸調整" });
+      });
+      if (newAdjs.length > 0) setStockAdjustments(prev => [...prev, ...newAdjs]);
+    }
+    if (key === "products") {
+      const newAdjs = [];
+      assigned.forEach(row => {
+        if (row.currentStock == null || isNaN(+row.currentStock)) return;
+        const { hand: cur } = calcProductStock(row.id, made, sales, consignRecords, productAdjustments);
+        const delta = +row.currentStock - cur;
+        if (Math.abs(delta) > 0.0001) newAdjs.push({ id: nextId(), productId: row.id, date: today(), adjustQty: delta, note: "棚卸調整" });
+      });
+      if (newAdjs.length > 0) setProductAdjustments(prev => [...prev, ...newAdjs]);
+    }
+
+    // currentStock はマスターデータに保存しない
+    if (key === "parts" || key === "products") {
+      assigned = assigned.map(r => { const out = {...r}; delete out.currentStock; return out; });
+    }
+
     if (mode === "overwrite") {
-      setter(assignedRows);
+      setter(assigned);
     } else {
       setter(prev => {
         const prevMap = new Map(prev.map(x => [x.id, x]));
-        assignedRows.forEach(r => prevMap.set(r.id, r));
+        assigned.forEach(r => prevMap.set(r.id, r));
         return [...prevMap.values()];
       });
     }
@@ -1205,6 +1248,7 @@ export default function App() {
     data: {
       parts, purchases, disposals, processings, partUsages,
       products, made, consignees, consignRecords, sales, channels,
+      stockAdjustments, productAdjustments,
       partCatMaster, productCatMaster, partLocMaster,
     },
   });
@@ -1223,8 +1267,10 @@ export default function App() {
     if (Array.isArray(d.consignees))       setConsignees(d.consignees);
     if (Array.isArray(d.consignRecords))   setConsignRecords(d.consignRecords);
     if (Array.isArray(d.sales))            setSales(d.sales);
-    if (Array.isArray(d.channels))         setChannels(d.channels);
-    if (Array.isArray(d.partCatMaster))    setPartCatMaster(d.partCatMaster);
+    if (Array.isArray(d.channels))             setChannels(d.channels);
+    if (Array.isArray(d.stockAdjustments))     setStockAdjustments(d.stockAdjustments);
+    if (Array.isArray(d.productAdjustments))   setProductAdjustments(d.productAdjustments);
+    if (Array.isArray(d.partCatMaster))        setPartCatMaster(d.partCatMaster);
     if (Array.isArray(d.productCatMaster)) setProductCatMaster(d.productCatMaster);
     if (Array.isArray(d.partLocMaster))    setPartLocMaster(d.partLocMaster);
     localStorage.setItem('as_local_saved_at', new Date().toISOString());
@@ -1482,22 +1528,50 @@ export default function App() {
     setEditingSaleId(null);
     setShowNewChannel(false);
     setNewChannelInput({name:"",feeRate:""});
-    setSf({productId:"",date:today(),channel:channels[0]?.name||"",qty:"1",price:"",shippingActual:"",memo:""});
+    setSf({ date:today(), channel:channels[0]?.name||"Minne", memo:"", items:[{saleType:"product",productId:"",orderName:"",qty:"1",price:"",shippingActual:""}] });
   };
 
   const openEditSale = (s)=>{
-    setSf({ productId:String(s.productId), date:s.date, channel:s.channel, qty:String(s.qty), price:String(s.price), shippingActual:String(s.shippingActual||""), memo:s.memo||"" });
+    setSf({
+      date: s.date, channel: s.channel, memo: s.memo||"",
+      items:[{
+        saleType: s.saleType||"product",
+        productId: s.saleType!=="order" ? String(s.productId||"") : "",
+        orderName: s.saleType==="order" ? (s.orderName||"") : "",
+        qty: String(s.qty), price: String(s.price), shippingActual: String(s.shippingActual||""),
+      }],
+    });
     setEditingSaleId(s.id);
     setModal("sale");
   };
 
   const addSale = ()=>{
-    if(!sf.productId||!sf.date||!sf.price||!sf.qty) return;
-    const base = { productId:+sf.productId, date:sf.date, channel:sf.channel, qty:+sf.qty, price:+sf.price, shippingActual:+sf.shippingActual||0, memo:sf.memo };
+    if(!sf.date) return;
     if(editingSaleId) {
-      setSales(ss=>ss.map(s=>s.id===editingSaleId ? {...s,...base} : s));
+      const item = sf.items[0];
+      if(!item.price||!item.qty) return;
+      if(item.saleType==="order"&&!item.orderName) return;
+      if(item.saleType!=="order"&&!item.productId) return;
+      const base = {
+        saleType: item.saleType==="order"?"order":undefined,
+        productId: item.saleType!=="order"?+item.productId:undefined,
+        orderName: item.saleType==="order"?item.orderName:undefined,
+        date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, shippingActual:+item.shippingActual||0, memo:sf.memo,
+      };
+      setSales(ss=>ss.map(s=>s.id===editingSaleId?{...s,...base}:s));
     } else {
-      setSales(p=>[...p,{id:nextId(),...base}]);
+      const validItems = sf.items.filter(item=>
+        item.price&&item.qty&&(item.saleType==="order"?item.orderName:item.productId)
+      );
+      if(validItems.length===0) return;
+      const newRecords = validItems.map(item=>({
+        id:nextId(),
+        saleType: item.saleType==="order"?"order":undefined,
+        productId: item.saleType!=="order"?+item.productId:undefined,
+        orderName: item.saleType==="order"?item.orderName:undefined,
+        date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, shippingActual:+item.shippingActual||0, memo:sf.memo,
+      }));
+      setSales(p=>[...p,...newRecords]);
     }
     closeSaleModal();
   };
@@ -2017,7 +2091,7 @@ export default function App() {
             </div>
             <div className="filter-row" style={{marginBottom:8,flexWrap:"wrap",gap:4}}>
               <span style={{fontSize:10,color:"var(--t2)",whiteSpace:"nowrap"}}>並び順:</span>
-              {[{val:"name",label:"名前順"},{val:"stock",label:"在庫順"},{val:"update",label:"更新順"}].map(s=>(
+              {[{val:"name",label:"名前順"},{val:"stock",label:"在庫順"},{val:"update",label:"更新順"},{val:"location",label:"保管場所順"}].map(s=>(
                 <button key={s.val} className={`chip ${partSort===s.val?"on":""}`} onClick={()=>setPartSort(s.val)}>{s.label}</button>
               ))}
               <button
@@ -2036,9 +2110,10 @@ export default function App() {
               const dir2 = partSortDir==="asc" ? 1 : -1;
               const lastDateOf2 = id => { const rs=purchases.filter(p=>p.partId===id); return rs.length?rs.reduce((mx,p)=>p.date>mx?p.date:mx,""):""; };
               const childSortFn = (a,b) => {
-                if(partSort==="name")   return dir2 * a.name.localeCompare(b.name,"ja");
-                if(partSort==="stock")  return dir2 * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
-                if(partSort==="update") return dir2 * lastDateOf2(a.id).localeCompare(lastDateOf2(b.id));
+                if(partSort==="name")     return dir2 * a.name.localeCompare(b.name,"ja");
+                if(partSort==="stock")    return dir2 * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
+                if(partSort==="update")   return dir2 * lastDateOf2(a.id).localeCompare(lastDateOf2(b.id));
+                if(partSort==="location") return dir2 * (a.location||"").localeCompare(b.location||"","ja");
                 return 0;
               };
               const shownIds = new Set();
@@ -2485,7 +2560,7 @@ export default function App() {
                 <div className="sale-card" key={s.id}>
                   <div className="sale-main" onClick={()=>tog(`s${s.id}`)}>
                     <div>
-                      <div className="sale-name"><span className="sale-dot" style={{background:chColMap[s.channel]||"var(--t2)"}}/>{prodName(s.productId)}{s.consignRecordId&&<span style={{fontSize:9,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 5px",marginLeft:5,color:"var(--t2)"}}><i className="fal fa-map-marker-alt" style={{marginRight:2}}/>委託</span>}</div>
+                      <div className="sale-name"><span className="sale-dot" style={{background:chColMap[s.channel]||"var(--t2)"}}/>{s.saleType==="order"?(s.orderName||"オーダー品"):prodName(s.productId)}{s.saleType==="order"&&<span style={{fontSize:9,background:"var(--md-tc)",border:"1px solid var(--md-otc)",borderRadius:4,padding:"1px 5px",marginLeft:5,color:"var(--md-otc)"}}>受注</span>}{s.consignRecordId&&<span style={{fontSize:9,background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:4,padding:"1px 5px",marginLeft:5,color:"var(--t2)"}}><i className="fal fa-map-marker-alt" style={{marginRight:2}}/>委託</span>}</div>
                       <div className="sale-meta">{s.date} · {s.channel} · {s.qty}点</div>
                     </div>
                     <div>
@@ -3036,68 +3111,114 @@ export default function App() {
           <div className="ov" onClick={e=>e.target===e.currentTarget&&setModal(null)}>
             <div className="modal">
               <div className="modal-title">{editingSaleId ? "売上を編集" : "売上を記録"}</div>
-              {(()=>{
-                const isConsign = editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId;
-                return isConsign ? (
-                  <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:12,color:"var(--t2)"}}>
-                    <i className="fal fa-map-marker-alt" style={{marginRight:5}}/>委託連動売上 — 商品・チャネルは委託記録から引き継がれます
-                    <div style={{marginTop:4,fontWeight:700,color:"var(--tx)"}}>{prodName(+sf.productId)} · {sf.channel}</div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="fr"><label className="fl">商品 *</label>
-                      <select className="fs" value={sf.productId} onChange={e=>{
-                        const pr=products.find(p=>p.id===+e.target.value);
-                        setSf(f=>({...f,productId:e.target.value,shippingActual:pr?String(pr.shippingCost):""}));
-                      }}>
-                        <option value="">選択してください</option>
-                        {products.map(p=>{
-                          const cost=productCostMap[p.id];
-                          return <option key={p.id} value={p.id}>{p.name}（原価¥{fmt(cost.total)}）</option>;
-                        })}
-                      </select>
-                    </div>
-                    <div className="fr"><label className="fl">チャネル</label>
-                      {!showNewChannel ? (
-                        <div style={{display:"flex",gap:6}}>
-                          <select className="fs" style={{flex:1}} value={sf.channel} onChange={e=>setSf(f=>({...f,channel:e.target.value}))}>
-                            {channels.map(c=><option key={c.id} value={c.name}>{c.name}（{c.feeRate}%）</option>)}
-                          </select>
-                          <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
-                            onClick={()=>setShowNewChannel(true)}>＋ 新規</button>
-                        </div>
-                      ) : (
-                        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                          <div style={{display:"flex",gap:6}}>
-                            <input className="fi" style={{flex:2}} placeholder="チャネル名（例: iichi）" value={newChannelInput.name} onChange={e=>setNewChannelInput(f=>({...f,name:e.target.value}))} autoFocus/>
-                            <input className="fi" style={{flex:1}} type="number" placeholder="手数料%" value={newChannelInput.feeRate} onChange={e=>setNewChannelInput(f=>({...f,feeRate:e.target.value}))}/>
-                          </div>
-                          <div style={{display:"flex",gap:6}}>
-                            <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"var(--ac)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={addChannel}>追加</button>
-                            <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"none",color:"var(--t2)",border:"1px solid var(--bd)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{setShowNewChannel(false);setNewChannelInput({name:"",feeRate:""});}}>戻る</button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                );
-              })()}
-              <div className="fr"><label className="fl">販売日 *</label><input className="fi" type="date" value={sf.date} onChange={e=>setSf(f=>({...f,date:e.target.value}))}/></div>
-              <div className="fr3">
-                <div className="fr"><label className="fl">販売価格 *</label><input className="fi" type="number" placeholder="0" value={sf.price} onChange={e=>setSf(f=>({...f,price:e.target.value}))}/></div>
-                <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="1" value={sf.qty} onChange={e=>setSf(f=>({...f,qty:e.target.value}))}/></div>
-                <div className="fr"><label className="fl">送料実費</label><input className="fi" type="number" placeholder="0" value={sf.shippingActual} onChange={e=>setSf(f=>({...f,shippingActual:e.target.value}))}/></div>
-              </div>
-              {salePreview && (
-                <div className="preview-box">
-                  <div className="prev-row"><span className="prev-lbl">売上合計</span><span className="prev-val">¥{fmt(salePreview.rev)}</span></div>
-                  <div className="prev-row"><span className="prev-lbl">原価</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(salePreview.cost)}</span></div>
-                  <div className="prev-row"><span className="prev-lbl">手数料（{salePreview.feeRate}%）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(salePreview.fee)}</span></div>
-                  <div className="prev-row"><span className="prev-lbl">送料実費</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(salePreview.ship)}</span></div>
-                  <div className="prev-div"/>
-                  <div className="prev-total"><span>純利益</span><span style={{color:salePreview.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(salePreview.profit)}（{pct(salePreview.profit,salePreview.rev)}%）</span></div>
+
+              {/* 委託連動売上の場合は商品・チャネルを固定表示 */}
+              {editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId && (
+                <div style={{background:"var(--s2)",border:"1px solid var(--bd)",borderRadius:8,padding:"8px 12px",marginBottom:8,fontSize:12,color:"var(--t2)"}}>
+                  <i className="fal fa-map-marker-alt" style={{marginRight:5}}/>委託連動売上 — 商品・チャネルは委託記録から引き継がれます
+                  <div style={{marginTop:4,fontWeight:700,color:"var(--tx)"}}>{prodName(+sf.items[0]?.productId)} · {sf.channel}</div>
                 </div>
               )}
+
+              {/* 共通フィールド：日付・チャネル */}
+              {!(editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId) && (
+                <div className="fr"><label className="fl">チャネル</label>
+                  {!showNewChannel ? (
+                    <div style={{display:"flex",gap:6}}>
+                      <select className="fs" style={{flex:1}} value={sf.channel} onChange={e=>setSf(f=>({...f,channel:e.target.value}))}>
+                        {channels.map(c=><option key={c.id} value={c.name}>{c.name}（{c.feeRate}%）</option>)}
+                      </select>
+                      <button style={{flexShrink:0,padding:"0 10px",border:"1px dashed var(--ac)",borderRadius:8,background:"none",color:"var(--ac)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
+                        onClick={()=>setShowNewChannel(true)}>＋ 新規</button>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      <div style={{display:"flex",gap:6}}>
+                        <input className="fi" style={{flex:2}} placeholder="チャネル名（例: iichi）" value={newChannelInput.name} onChange={e=>setNewChannelInput(f=>({...f,name:e.target.value}))} autoFocus/>
+                        <input className="fi" style={{flex:1}} type="number" placeholder="手数料%" value={newChannelInput.feeRate} onChange={e=>setNewChannelInput(f=>({...f,feeRate:e.target.value}))}/>
+                      </div>
+                      <div style={{display:"flex",gap:6}}>
+                        <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"var(--ac)",color:"#fff",border:"none",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={addChannel}>追加</button>
+                        <button style={{flex:1,padding:"7px 0",borderRadius:8,background:"none",color:"var(--t2)",border:"1px solid var(--bd)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>{setShowNewChannel(false);setNewChannelInput({name:"",feeRate:""});}}>戻る</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              <div className="fr"><label className="fl">販売日 *</label><input className="fi" type="date" value={sf.date} onChange={e=>setSf(f=>({...f,date:e.target.value}))}/></div>
+
+              {/* 商品アイテムリスト */}
+              {sf.items.map((item, idx)=>{
+                const isConsignEdit = editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId;
+                const prev = salePreview[idx];
+                const updItem = (patch) => setSf(f=>({ ...f, items: f.items.map((it,i)=>i===idx?{...it,...patch}:it) }));
+                return (
+                  <div key={idx} style={{border:"1px solid var(--md-olv)",borderRadius:12,padding:"10px 12px",marginBottom:8,background:"var(--md-sc1)"}}>
+                    {/* 種別トグル（新規・非委託のみ） */}
+                    {!isConsignEdit && (
+                      <div style={{display:"flex",gap:6,marginBottom:8}}>
+                        {["product","order"].map(t=>(
+                          <button key={t} className={`chip${item.saleType===t?" on":""}`} style={{flex:1}}
+                            onClick={()=>updItem({saleType:t,productId:"",orderName:""})}>
+                            {t==="product"?"作品":"オーダー品"}
+                          </button>
+                        ))}
+                        {sf.items.length>1&&(
+                          <button style={{padding:"4px 10px",border:"1px solid var(--md-e)",borderRadius:8,background:"none",color:"var(--low)",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}
+                            onClick={()=>setSf(f=>({...f,items:f.items.filter((_,i)=>i!==idx)}))}>
+                            <i className="fal fa-times"/>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {/* 商品選択 or オーダー品名 */}
+                    {!isConsignEdit && (
+                      item.saleType==="order" ? (
+                        <div className="fr"><label className="fl">オーダー品名 *</label>
+                          <input className="fi" placeholder="例: 名入れネックレス" value={item.orderName} onChange={e=>updItem({orderName:e.target.value})}/>
+                        </div>
+                      ) : (
+                        <div className="fr"><label className="fl">作品 *</label>
+                          <select className="fs" value={item.productId} onChange={e=>{
+                            const pr=products.find(p=>p.id===+e.target.value);
+                            updItem({productId:e.target.value,shippingActual:pr?String(pr.shippingCost):item.shippingActual});
+                          }}>
+                            <option value="">選択してください</option>
+                            {products.map(p=>{
+                              const cost=productCostMap[p.id];
+                              return <option key={p.id} value={p.id}>{p.name}（原価¥{fmt(cost.total)}）</option>;
+                            })}
+                          </select>
+                        </div>
+                      )
+                    )}
+                    <div className="fr3">
+                      <div className="fr"><label className="fl">販売価格 *</label><input className="fi" type="number" placeholder="0" value={item.price} onChange={e=>updItem({price:e.target.value})}/></div>
+                      <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="1" value={item.qty} onChange={e=>updItem({qty:e.target.value})}/></div>
+                      <div className="fr"><label className="fl">送料実費</label><input className="fi" type="number" placeholder="0" value={item.shippingActual} onChange={e=>updItem({shippingActual:e.target.value})}/></div>
+                    </div>
+                    {prev && (
+                      <div className="preview-box" style={{marginTop:8}}>
+                        <div className="prev-row"><span className="prev-lbl">売上合計</span><span className="prev-val">¥{fmt(prev.rev)}</span></div>
+                        {item.saleType!=="order"&&<div className="prev-row"><span className="prev-lbl">原価</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>}
+                        <div className="prev-row"><span className="prev-lbl">手数料（{prev.feeRate}%）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.fee)}</span></div>
+                        <div className="prev-row"><span className="prev-lbl">送料実費</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.ship)}</span></div>
+                        <div className="prev-div"/>
+                        <div className="prev-total"><span>純利益</span><span style={{color:prev.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(prev.profit)}（{pct(prev.profit,prev.rev)}%）</span></div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* 商品を追加ボタン（新規のみ） */}
+              {!editingSaleId && (
+                <button style={{width:"100%",padding:"8px 0",border:"1px dashed var(--ac)",borderRadius:10,background:"none",color:"var(--ac)",fontSize:13,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}
+                  onClick={()=>setSf(f=>({...f,items:[...f.items,{saleType:"product",productId:"",orderName:"",qty:"1",price:"",shippingActual:""}]}))}>
+                  <i className="fas fa-plus" style={{marginRight:5}}/>商品を追加
+                </button>
+              )}
+
               <div className="fr"><label className="fl">メモ（注文番号・領収書番号など）</label><input className="fi" placeholder="例: MN-20250412" value={sf.memo} onChange={e=>setSf(f=>({...f,memo:e.target.value}))}/></div>
               <div className="div"/>
               <button className="btn-p" onClick={addSale}>{editingSaleId ? "保存する" : "記録する"}</button>
