@@ -3,106 +3,26 @@ import { useState, useMemo, useEffect, useRef } from "react";
 // ═══════════════════════════════════════════════════════════════
 //  初期データ
 // ═══════════════════════════════════════════════════════════════
-const INIT_PARTS = [
-  { id:1,  cat:"金具",    name:"Cカン",        variant:"ゴールド / 8mm / 真鍮",  unit:"個", hinban:"C-001" },
-  { id:2,  cat:"金具",    name:"Cカン",        variant:"シルバー / 8mm / 鉄",    unit:"個", hinban:"C-002" },
-  { id:3,  cat:"金具",    name:"丸カン",       variant:"ゴールド / 6mm",         unit:"個", hinban:"M-001" },
-  { id:4,  cat:"金具",    name:"ピアスポスト", variant:"シルバー / チタン",      unit:"ペア", hinban:"P-001" },
-  { id:5,  cat:"チェーン",name:"ボールチェーン",variant:"ゴールド / 1.5mm",      unit:"m", hinban:"CH-001" },
-  { id:6,  cat:"チェーン",name:"アズキチェーン",variant:"シルバー / 2mm",        unit:"m", hinban:"CH-002" },
-  { id:7,  cat:"ビーズ",  name:"淡水パール",   variant:"オフホワイト / 6mm",     unit:"個", hinban:"B-001" },
-  { id:8,  cat:"ビーズ",  name:"天然石",       variant:"ローズクォーツ / 8mm",   unit:"個", hinban:"B-002" },
-  { id:9,  cat:"梱包材",  name:"OPP袋",        variant:"60×90mm",               unit:"枚", hinban:"PK-001" },
-  { id:10, cat:"梱包材",  name:"台紙",         variant:"ピアス用 白",            unit:"枚", hinban:"PK-002" },
-];
+const INIT_PARTS = [];
 
-const INIT_PURCHASES = [
-  { id:1,  partId:1,  date:"2025-02-10", supplier:"パーツクラブ",  qty:100, unitPrice:8,   note:"" },
-  { id:2,  partId:1,  date:"2025-03-01", supplier:"手芸の山久",    qty:80,  unitPrice:7,   note:"まとめ買い割引" },
-  { id:3,  partId:1,  date:"2025-03-20", supplier:"パーツクラブ",  qty:50,  unitPrice:8,   note:"" },
-  { id:4,  partId:2,  date:"2025-02-15", supplier:"手芸の山久",    qty:60,  unitPrice:5,   note:"" },
-  { id:5,  partId:2,  date:"2025-03-10", supplier:"Beads & Parts", qty:40,  unitPrice:6,   note:"" },
-  { id:6,  partId:3,  date:"2025-02-20", supplier:"パーツクラブ",  qty:200, unitPrice:4,   note:"" },
-  { id:7,  partId:3,  date:"2025-03-15", supplier:"手芸の山久",    qty:150, unitPrice:3.5, note:"" },
-  { id:8,  partId:4,  date:"2025-02-28", supplier:"Beads & Parts", qty:30,  unitPrice:18,  note:"" },
-  { id:9,  partId:4,  date:"2025-03-18", supplier:"Beads & Parts", qty:20,  unitPrice:19,  note:"価格改定後" },
-  { id:10, partId:5,  date:"2025-02-10", supplier:"手芸の山久",    qty:20,  unitPrice:120, note:"" },
-  { id:11, partId:6,  date:"2025-02-10", supplier:"手芸の山久",    qty:30,  unitPrice:85,  note:"" },
-  { id:12, partId:7,  date:"2025-02-05", supplier:"石と珠",        qty:150, unitPrice:45,  note:"" },
-  { id:13, partId:7,  date:"2025-03-12", supplier:"石と珠",        qty:100, unitPrice:48,  note:"価格改定" },
-  { id:14, partId:8,  date:"2025-02-05", supplier:"石と珠",        qty:30,  unitPrice:110, note:"" },
-  { id:15, partId:9,  date:"2025-02-01", supplier:"資材屋さん",    qty:300, unitPrice:3,   note:"" },
-  { id:16, partId:9,  date:"2025-03-01", supplier:"資材屋さん",    qty:200, unitPrice:3,   note:"" },
-  { id:17, partId:10, date:"2025-02-01", supplier:"資材屋さん",    qty:100, unitPrice:12,  note:"" },
-  { id:18, partId:10, date:"2025-03-01", supplier:"資材屋さん",    qty:50,  unitPrice:12,  note:"" },
-];
+const INIT_PURCHASES = [];
 
-const INIT_DISPOSALS = [
-  { id:1, partId:1, date:"2025-03-05", qty:10, reason:"変色・劣化" },
-  { id:2, partId:8, date:"2025-03-22", qty:3,  reason:"割れ・破損" },
-];
+const INIT_DISPOSALS = [];
 
 const INIT_PROCESSINGS = [];
 
-// 作品マスタ（レシピ）
-const INIT_PRODUCTS = [
-  { id:1, name:"パールピアス",           desc:"淡水パール × Cカン × ピアスポスト",
-    ingredients:[{partId:7,qty:4},{partId:1,qty:4},{partId:4,qty:1},{partId:9,qty:1},{partId:10,qty:1}],
-    shippingCost:220, laborCost:150 },
-  { id:2, name:"ゴールドチェーンネックレス", desc:"ボールチェーン × 丸カン",
-    ingredients:[{partId:5,qty:0.4},{partId:3,qty:2},{partId:9,qty:1}],
-    shippingCost:220, laborCost:100 },
-  { id:3, name:"天然石ブレスレット",     desc:"ローズクォーツ × Cカン",
-    ingredients:[{partId:8,qty:10},{partId:1,qty:2},{partId:9,qty:1}],
-    shippingCost:310, laborCost:200 },
-];
+const INIT_PRODUCTS = [];
 
-// 作品の制作記録（これが在庫の源泉）
-// productId, date, qty, note
-const INIT_MADE = [
-  { id:1, productId:1, date:"2025-02-20", qty:10, note:"" },
-  { id:2, productId:2, date:"2025-02-25", qty:5,  note:"" },
-  { id:3, productId:3, date:"2025-03-01", qty:4,  note:"" },
-  { id:4, productId:1, date:"2025-03-10", qty:8,  note:"追加制作" },
-];
+const INIT_MADE = [];
 
-// 委託先マスタ
-const INIT_CONSIGNEES = [
-  { id:1, name:"ギャラリーABC", address:"札幌市中央区", memo:"月末締め翌月払い" },
-  { id:2, name:"雑貨店 Hana",   address:"札幌市北区",   memo:"販売手数料30%" },
-];
+const INIT_CONSIGNEES = [];
 
-// 委託記録（productId × consigneeId ごと）
-// type: "deliver" | "return" | "loss" | "sale"（委託先での売上）
-const INIT_CONSIGN_RECORDS = [
-  { id:1, productId:1, consigneeId:1, date:"2025-03-05", type:"deliver", qty:5,  salePrice:1800, feeRate:30, memo:"" },
-  { id:2, productId:2, consigneeId:1, date:"2025-03-05", type:"deliver", qty:3,  salePrice:3200, feeRate:30, memo:"" },
-  { id:3, productId:1, consigneeId:2, date:"2025-03-10", type:"deliver", qty:4,  salePrice:2000, feeRate:30, memo:"" },
-  { id:4, productId:1, consigneeId:1, date:"2025-03-25", type:"sale",    qty:2,  salePrice:1800, feeRate:30, memo:"3月分報告" },
-  { id:5, productId:1, consigneeId:2, date:"2025-04-01", type:"sale",    qty:1,  salePrice:2000, feeRate:30, memo:"" },
-  { id:6, productId:2, consigneeId:1, date:"2025-04-01", type:"sale",    qty:1,  salePrice:3200, feeRate:30, memo:"" },
-  { id:7, productId:1, consigneeId:2, date:"2025-04-05", type:"loss",    qty:1,  salePrice:0,    feeRate:0,  memo:"展示中に破損" },
-];
+const INIT_CONSIGN_RECORDS = [];
 
-// 売上記録（直販）
-const INIT_SALES = [
-  { id:1, productId:1, date:"2025-03-08", channel:"実店舗", qty:3, price:1800, shippingActual:0,   memo:"" },
-  { id:2, productId:2, date:"2025-03-05", channel:"BASE",   qty:1, price:3200, shippingActual:220, memo:"" },
-  { id:3, productId:3, date:"2025-03-12", channel:"Creema", qty:1, price:4500, shippingActual:310, memo:"CR-20250312" },
-  { id:4, productId:2, date:"2025-03-15", channel:"Minne",  qty:2, price:3200, shippingActual:220, memo:"" },
-  { id:5, productId:3, date:"2025-03-25", channel:"実店舗", qty:2, price:4500, shippingActual:0,   memo:"" },
-  { id:6, productId:1, date:"2025-04-02", channel:"Minne",  qty:4, price:1800, shippingActual:220, memo:"MN-20250402" },
-  { id:7, productId:2, date:"2025-04-05", channel:"Creema", qty:1, price:3200, shippingActual:220, memo:"" },
-  { id:8, productId:3, date:"2025-04-08", channel:"BASE",   qty:1, price:4500, shippingActual:310, memo:"" },
-];
+const INIT_SALES = [];
 
-const PART_CATS = ["すべて","金具","チェーン","ビーズ","梱包材"];
-const INIT_CHANNELS = [
-  { id:1, name:"Minne",  feeRate:10,  color:"#e8847a" },
-  { id:2, name:"Creema", feeRate:10,  color:"#7ab5e8" },
-  { id:3, name:"BASE",   feeRate:6.6, color:"#8ae8a8" },
-  { id:4, name:"実店舗", feeRate:0,   color:"#e8c87a" },
-];
+const PART_CATS = [];
+const INIT_CHANNELS = [];
 const CH_PALETTE = ["#e8847a","#7ab5e8","#8ae8a8","#e8c87a","#b87ae8","#7ae8d8","#e87ab5","#a8e87a"];
 const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
 const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
