@@ -41,7 +41,9 @@ const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss
 
 // ─── CSV / JSON データ管理ヘルパー ────────────────────────────────
 const CSV_COLS = {
-  parts:         { label:"部品マスター",    cols:["id","cat","name","variant","unit","hinban","minStock","type","parentId","location","currentStock"],      headers:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所","現在庫数"],   jsonCols:[] },
+  parts:         { label:"部品マスター",    cols:["id","cat","name","variant","unit","hinban","minStock","type","parentId","location","currentStock","avgPrice"],      headers:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所","現在庫数","加重平均単価"],   jsonCols:[],
+                   exportCols:   ["id","cat","name","variant","unit","hinban","minStock","type","parentId","location","currentStock","avgPrice"],
+                   exportHeaders:["ID","カテゴリ","名前","バリアント","単位","品番","最低在庫","タイプ","親部品ID","保管場所","現在庫数","加重平均単価"] },
   purchases:     { label:"仕入記録",        cols:["id","partId","date","supplier","qty","totalPrice","unitPrice","note"],                                       headers:["ID","部品ID","日付","仕入先","部品数量","実購入額(税込)","単価(税抜)","メモ"],                          jsonCols:[] },
   disposals:     { label:"廃棄記録",        cols:["id","partId","date","qty","reason"],                                                                       headers:["ID","部品ID","日付","数量","理由"],                                                                    jsonCols:[] },
   processings:   { label:"加工記録",        cols:["id","date","inputPartId","inputQty","outputs","lossQty","note"],                                           headers:["ID","日付","母材ID","使用量","切り出し結果(JSON)","ロス量","メモ"],                                      jsonCols:["outputs"] },
@@ -56,8 +58,14 @@ const CSV_COLS = {
   partUsages:    { label:"部品使用記録",    cols:["id","madeId","partId","date","qty","type"],                                                                 headers:["ID","制作記録ID","部品ID","日付","数量","タイプ"],                                                      jsonCols:[] },
 };
 
-function csvCell(v) {
+const CSV_ID_COLS = new Set(["id","partId","productId","consigneeId","parentId","madeId","inputPartId","consignRecordId"]);
+
+function csvCell(v, colName) {
   if (v == null) return "";
+  // Excelが大きな整数IDを指数表記(1.77675E+12)に変換するのを防ぐため ="..." 形式で出力
+  if (colName && CSV_ID_COLS.has(colName) && typeof v === "number") {
+    return `="${v}"`;
+  }
   const s = typeof v === "object" ? JSON.stringify(v) : String(v);
   if (s.includes(",") || s.includes('"') || s.includes("\n") || s.includes("\r")) {
     return '"' + s.replace(/"/g, '""') + '"';
@@ -68,7 +76,7 @@ function csvCell(v) {
 function buildCSV(rows, cols, headers) {
   const lines = [headers.map(h => csvCell(h)).join(",")];
   for (const row of rows) {
-    lines.push(cols.map(c => csvCell(row[c])).join(","));
+    lines.push(cols.map(c => csvCell(row[c], c)).join(","));
   }
   return "\uFEFF" + lines.join("\r\n");
 }
@@ -122,8 +130,10 @@ function csvRowsToObjects(rows, colDef) {
       if (colDef.jsonCols.includes(col)) {
         try { val = val ? JSON.parse(val) : []; } catch { val = []; }
       } else if (col === "id" || col === "partId" || col === "productId" || col === "consigneeId" || col === "parentId" || col === "madeId" || col === "inputPartId" || col === "consignRecordId") {
-        val = val === "" ? undefined : Number(val);
-      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock" || col === "currentStock") {
+        // ="1776750000000" 形式（Excel指数表記対策）を剥がす
+        const stripped = typeof val === "string" ? val.replace(/^="(.*)"$/, "$1") : val;
+        val = stripped === "" ? undefined : Number(stripped);
+      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock" || col === "currentStock" || col === "avgPrice") {
         val = val === "" ? undefined : Number(val);
       }
       if (val !== undefined && val !== "") obj[col] = val;
@@ -211,7 +221,26 @@ async function driveWriteFile(token, fileId, payload) {
   return data.id;
 }
 
-function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined, stockAdjustments=[]) {
+// 母材/通常部品の加重平均単価を計算。priceAdjustmentsがあれば調整日以降の仕入のみ合算
+function calcAvgPrice(partId, purchases, priceAdjustments) {
+  const buys = purchases.filter(p=>p.partId===partId);
+  const latestAdj = priceAdjustments
+    .filter(a=>a.partId===partId)
+    .sort((a,b)=>b.date.localeCompare(a.date))[0];
+  if(latestAdj) {
+    const newBuys = buys.filter(b=>b.date > latestAdj.date);
+    const newQty = newBuys.reduce((s,p)=>s+p.qty,0);
+    const newAmt = newBuys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
+    const totQty = latestAdj.stock + newQty;
+    const totAmt = latestAdj.stock * latestAdj.avgPrice + newAmt;
+    return totQty > 0 ? totAmt/totQty : latestAdj.avgPrice;
+  }
+  const totalQty = buys.reduce((s,p)=>s+p.qty,0);
+  const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
+  return totalQty > 0 ? totalAmt/totalQty : 0;
+}
+
+function calcPartStock(partId, purchases, disposals, partUsages=[], processings=[], type=undefined, stockAdjustments=[], priceAdjustments=[]) {
   const disps   = disposals.filter(d=>d.partId===partId);
   const dispQty = disps.reduce((s,d)=>s+d.qty,0);
   const adjQty  = stockAdjustments.filter(a=>a.partId===partId).reduce((s,a)=>s+a.adjustQty,0);
@@ -219,8 +248,7 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
   if(type==="material") {
     const buys    = purchases.filter(p=>p.partId===partId);
     const totalQty = buys.reduce((s,p)=>s+p.qty,0);
-    const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
-    const avgPrice = totalQty>0 ? totalAmt/totalQty : 0;
+    const avgPrice = calcAvgPrice(partId, purchases, priceAdjustments);
     const usedInProc = processings.filter(pr=>pr.inputPartId===partId).reduce((s,pr)=>s+pr.inputQty,0);
     const supMap = new Map();
     buys.forEach(p=>supMap.set(p.supplier,p.unitPrice));
@@ -236,11 +264,8 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
       const out = pr.outputs.find(o=>o.partId===partId);
       if(!out) return;
       totalOutputQty += out.qty;
-      const inputBuys   = purchases.filter(p=>p.partId===pr.inputPartId);
-      const inputTotQty = inputBuys.reduce((s,p)=>s+p.qty,0);
-      const inputTotAmt = inputBuys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
-      const inputAvg    = inputTotQty>0 ? inputTotAmt/inputTotQty : 0;
-      const allOutQty   = pr.outputs.reduce((s,o)=>s+o.qty,0);
+      const inputAvg  = calcAvgPrice(pr.inputPartId, purchases, priceAdjustments);
+      const allOutQty = pr.outputs.reduce((s,o)=>s+o.qty,0);
       const costPerUnit = allOutQty>0 ? (pr.inputQty*inputAvg)/allOutQty : 0;
       totalCost += out.qty * costPerUnit;
     });
@@ -251,9 +276,8 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
   const buys    = purchases.filter(p=>p.partId===partId);
   const usages  = partUsages.filter(u=>u.partId===partId);
   const totalQty = buys.reduce((s,p)=>s+p.qty,0);
-  const totalAmt = buys.reduce((s,p)=>s+p.qty*p.unitPrice,0);
   const usedQty  = usages.reduce((s,u)=>s+u.qty,0);
-  const avgPrice = totalQty>0 ? totalAmt/totalQty : 0;
+  const avgPrice = calcAvgPrice(partId, purchases, priceAdjustments);
   const supMap   = new Map();
   buys.forEach(p=>supMap.set(p.supplier,p.unitPrice));
   return { stock: totalQty-dispQty-usedQty+adjQty, avgPrice, supMap };
@@ -830,6 +854,7 @@ export default function App() {
   const [partLocMaster,  setPartLocMaster]  = useLS("as_part_locations",  ["棚A","棚B","引き出し"]);
   const [stockAdjustments,   setStockAdjustments]   = useLS("as_stock_adjustments",   []);
   const [productAdjustments, setProductAdjustments] = useLS("as_product_adjustments", []);
+  const [priceAdjustments,   setPriceAdjustments]   = useLS("as_price_adjustments",   []);
 
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
@@ -906,9 +931,9 @@ export default function App() {
   // ── 計算 ──────────────────────────────────────────────────────
   const partStockMap = useMemo(()=>{
     const m={};
-    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages,processings,p.type,stockAdjustments); });
+    parts.forEach(p=>{ m[p.id]=calcPartStock(p.id,purchases,disposals,partUsages,processings,p.type,stockAdjustments,priceAdjustments); });
     return m;
-  },[parts,purchases,disposals,partUsages,processings,stockAdjustments]);
+  },[parts,purchases,disposals,partUsages,processings,stockAdjustments,priceAdjustments]);
 
   const productCostMap = useMemo(()=>{
     const m={};
@@ -1030,12 +1055,13 @@ export default function App() {
     partUsages:         setPartUsages,
     stockAdjustments:   setStockAdjustments,
     productAdjustments: setProductAdjustments,
+    priceAdjustments:   setPriceAdjustments,
   };
   const dataValueMap = () => ({
     parts, purchases, disposals, processings,
     products, made, consignees, consignRecords,
     sales, channels, partUsages,
-    stockAdjustments, productAdjustments,
+    stockAdjustments, productAdjustments, priceAdjustments,
   });
 
   const handleExportJSON = () => {
@@ -1062,9 +1088,13 @@ export default function App() {
           : "",
       }));
     }
-    // 棚卸用：現在庫数を付与
+    // 棚卸用：現在庫数・加重平均単価を付与
     if (key === "parts") {
-      rows = rows.map(p => ({ ...p, currentStock: fmtStock(partStockMap[p.id]?.stock ?? 0) }));
+      rows = rows.map(p => ({
+        ...p,
+        currentStock: fmtStock(partStockMap[p.id]?.stock ?? 0),
+        avgPrice: p.type === "part" ? "" : Math.round((partStockMap[p.id]?.avgPrice ?? 0) * 100) / 100,
+      }));
     }
     if (key === "products") {
       rows = rows.map(p => ({ ...p, currentStock: productStockMap[p.id]?.hand ?? 0 }));
@@ -1132,32 +1162,45 @@ export default function App() {
     if (!setter) return;
     let assigned = rows.map(r => r.id ? r : { ...r, id: nextId() });
 
-    // 棚卸調整：現在庫数列が含まれる場合、差分を調整レコードとして積む
-    if (key === "parts") {
-      const newAdjs = [];
-      assigned.forEach(row => {
-        if (row.currentStock == null || isNaN(+row.currentStock)) return;
-        const partType = row.type || parts.find(p => p.id === row.id)?.type;
-        const { stock: cur } = calcPartStock(row.id, purchases, disposals, partUsages, processings, partType, stockAdjustments);
-        const delta = +row.currentStock - cur;
-        if (Math.abs(delta) > 0.0001) newAdjs.push({ id: nextId(), partId: row.id, date: today(), adjustQty: delta, note: "棚卸調整" });
-      });
-      if (newAdjs.length > 0) setStockAdjustments(prev => [...prev, ...newAdjs]);
-    }
-    if (key === "products") {
-      const newAdjs = [];
-      assigned.forEach(row => {
-        if (row.currentStock == null || isNaN(+row.currentStock)) return;
-        const { hand: cur } = calcProductStock(row.id, made, sales, consignRecords, productAdjustments);
-        const delta = +row.currentStock - cur;
-        if (Math.abs(delta) > 0.0001) newAdjs.push({ id: nextId(), productId: row.id, date: today(), adjustQty: delta, note: "棚卸調整" });
-      });
-      if (newAdjs.length > 0) setProductAdjustments(prev => [...prev, ...newAdjs]);
+    // 棚卸調整：マージ時のみ・現在庫数列が含まれる場合に差分を調整レコードとして積む
+    // 全置換はマスターデータの差し替えが目的なので在庫調整は行わない
+    if (mode === "merge") {
+      if (key === "parts") {
+        const newAdjs = [];
+        const newPriceAdjs = [];
+        assigned.forEach(row => {
+          const partType = row.type || parts.find(p => p.id === row.id)?.type;
+          const { stock: cur, avgPrice: curAvg } = calcPartStock(row.id, purchases, disposals, partUsages, processings, partType, stockAdjustments, priceAdjustments);
+          if (row.currentStock != null && !isNaN(+row.currentStock)) {
+            const delta = +row.currentStock - cur;
+            if (Math.abs(delta) > 0.0001) newAdjs.push({ id: nextId(), partId: row.id, date: today(), adjustQty: delta, note: "棚卸調整" });
+          }
+          // 加重平均単価の上書き（中間材は親の加工コストから算出するため対象外）
+          if (partType !== "part" && row.avgPrice != null && !isNaN(+row.avgPrice) && +row.avgPrice > 0) {
+            if (Math.abs(+row.avgPrice - curAvg) > 0.01) {
+              const baseStock = row.currentStock != null ? +row.currentStock : cur;
+              newPriceAdjs.push({ id: nextId(), partId: row.id, date: today(), avgPrice: +row.avgPrice, stock: baseStock, note: "棚卸調整" });
+            }
+          }
+        });
+        if (newAdjs.length > 0) setStockAdjustments(prev => [...prev, ...newAdjs]);
+        if (newPriceAdjs.length > 0) setPriceAdjustments(prev => [...prev, ...newPriceAdjs]);
+      }
+      if (key === "products") {
+        const newAdjs = [];
+        assigned.forEach(row => {
+          if (row.currentStock == null || isNaN(+row.currentStock)) return;
+          const { hand: cur } = calcProductStock(row.id, made, sales, consignRecords, productAdjustments);
+          const delta = +row.currentStock - cur;
+          if (Math.abs(delta) > 0.0001) newAdjs.push({ id: nextId(), productId: row.id, date: today(), adjustQty: delta, note: "棚卸調整" });
+        });
+        if (newAdjs.length > 0) setProductAdjustments(prev => [...prev, ...newAdjs]);
+      }
     }
 
-    // currentStock はマスターデータに保存しない
+    // currentStock / avgPrice はマスターデータに保存しない
     if (key === "parts" || key === "products") {
-      assigned = assigned.map(r => { const out = {...r}; delete out.currentStock; return out; });
+      assigned = assigned.map(r => { const out = {...r}; delete out.currentStock; delete out.avgPrice; return out; });
     }
 
     if (mode === "overwrite") {
@@ -1182,7 +1225,7 @@ export default function App() {
     data: {
       parts, purchases, disposals, processings, partUsages,
       products, made, consignees, consignRecords, sales, channels,
-      stockAdjustments, productAdjustments,
+      stockAdjustments, productAdjustments, priceAdjustments,
       partCatMaster, productCatMaster, partLocMaster,
     },
   });
@@ -1204,6 +1247,7 @@ export default function App() {
     if (Array.isArray(d.channels))             setChannels(d.channels);
     if (Array.isArray(d.stockAdjustments))     setStockAdjustments(d.stockAdjustments);
     if (Array.isArray(d.productAdjustments))   setProductAdjustments(d.productAdjustments);
+    if (Array.isArray(d.priceAdjustments))     setPriceAdjustments(d.priceAdjustments);
     if (Array.isArray(d.partCatMaster))        setPartCatMaster(d.partCatMaster);
     if (Array.isArray(d.productCatMaster)) setProductCatMaster(d.productCatMaster);
     if (Array.isArray(d.partLocMaster))    setPartLocMaster(d.partLocMaster);
