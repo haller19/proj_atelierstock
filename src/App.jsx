@@ -318,13 +318,18 @@ function calcConsigneeStock(productId, consigneeId, records) {
 }
 
 function calcSaleProfit(sale, productCostMap, chFeeMap={}) {
-  const cost = productCostMap[sale.productId]?.total||0;
+  const costInfo = productCostMap[sale.productId];
+  const cost = costInfo?.total||0;
+  const estimatedShipping = costInfo?.shippingCost||0;
   const revenue = sale.price*sale.qty;
   const feeRate = sale.feeRate!=null ? sale.feeRate : (chFeeMap[sale.channel]??0);
   const channelFee = Math.round(sale.price*(feeRate/100))*sale.qty;
-  const shipping = (sale.shippingActual||0)*sale.qty;
-  const profit = revenue - cost*sale.qty - channelFee - shipping;
-  return { revenue, totalCost:cost*sale.qty, channelFee, shipping, profit, profitRate:pct(profit,revenue), feeRate };
+  // 実送料が入力済みの場合のみ差額を計上。未入力(0)は想定送料をそのまま使用
+  const shippingAdj = sale.shippingActual > 0
+    ? ((sale.shippingActual - estimatedShipping) * sale.qty)
+    : 0;
+  const profit = revenue - cost*sale.qty - channelFee - shippingAdj;
+  return { revenue, totalCost:cost*sale.qty, channelFee, shippingAdj, estimatedShipping, profit, profitRate:pct(profit,revenue), feeRate };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1031,12 +1036,16 @@ export default function App() {
     return sf.items.map(item=>{
       if(!item.price||!item.qty) return null;
       if(item.saleType!=="order"&&!item.productId) return null;
-      const cost = item.saleType!=="order" ? (productCostMap[+item.productId]?.total||0) : 0;
+      const costInfo = item.saleType!=="order" ? productCostMap[+item.productId] : null;
+      const cost = costInfo?.total||0;
+      const estimatedShipping = costInfo?.shippingCost||0;
       const rev  = +item.price * +item.qty;
       const fee  = Math.round(+item.price*(feeRate/100))*(+item.qty);
-      const ship = (+item.shippingActual||0)*(+item.qty);
-      const profit = rev - cost*(+item.qty) - fee - ship;
-      return { rev, cost:cost*(+item.qty), fee, ship, profit, feeRate };
+      const shippingAdj = +item.shippingActual > 0
+        ? ((+item.shippingActual - estimatedShipping) * (+item.qty))
+        : 0;
+      const profit = rev - cost*(+item.qty) - fee - shippingAdj;
+      return { rev, cost:cost*(+item.qty), fee, shippingAdj, estimatedShipping, profit, feeRate };
     });
   },[sf,productCostMap,chFeeMap]);
 
@@ -2579,7 +2588,17 @@ export default function App() {
                       <div className="sd-div"/>
                       <div className="sd-row"><span className="sd-lbl">原価</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.totalCost)}</span></div>
                       <div className="sd-row"><span className="sd-lbl">チャネル手数料（{calc.feeRate}%）</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.channelFee)}</span></div>
-                      <div className="sd-row"><span className="sd-lbl">送料実費</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.shipping)}</span></div>
+                      {s.shippingActual>0&&calc.shippingAdj!==0&&(
+                        <div className="sd-row">
+                          <span className="sd-lbl">送料差額（実費¥{fmt(s.shippingActual)}−想定¥{fmt(calc.estimatedShipping)}）</span>
+                          <span className="sd-val" style={{color:calc.shippingAdj>0?"var(--low)":"var(--ok)"}}>
+                            {calc.shippingAdj>0?`−¥${fmt(calc.shippingAdj)}`:`+¥${fmt(-calc.shippingAdj)}`}
+                          </span>
+                        </div>
+                      )}
+                      {s.shippingActual>0&&calc.shippingAdj===0&&(
+                        <div className="sd-row"><span className="sd-lbl">送料（実費=想定 ¥{fmt(s.shippingActual)}）</span><span className="sd-val" style={{color:"var(--md-osv)"}}>±¥0</span></div>
+                      )}
                       <div className="sd-div"/>
                       <div className="sd-total"><span>純利益</span><span style={{color:calc.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(calc.profit)}（{calc.profitRate}%）</span></div>
                       {s.memo&&<div className="sd-memo"><i className="fal fa-sticky-note" style={{marginRight:4}}/>{s.memo}</div>}
@@ -3203,9 +3222,19 @@ export default function App() {
                     {prev && (
                       <div className="preview-box" style={{marginTop:8}}>
                         <div className="prev-row"><span className="prev-lbl">売上合計</span><span className="prev-val">¥{fmt(prev.rev)}</span></div>
-                        {item.saleType!=="order"&&<div className="prev-row"><span className="prev-lbl">原価</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>}
+                        {item.saleType!=="order"&&<div className="prev-row"><span className="prev-lbl">原価（想定送料¥{fmt(prev.estimatedShipping)}込）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>}
                         <div className="prev-row"><span className="prev-lbl">手数料（{prev.feeRate}%）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.fee)}</span></div>
-                        <div className="prev-row"><span className="prev-lbl">送料実費</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.ship)}</span></div>
+                        {+item.shippingActual>0&&prev.shippingAdj!==0&&(
+                          <div className="prev-row">
+                            <span className="prev-lbl">送料差額（実費¥{fmt(+item.shippingActual)}−想定¥{fmt(prev.estimatedShipping)}）</span>
+                            <span className="prev-val" style={{color:prev.shippingAdj>0?"var(--low)":"var(--ok)"}}>
+                              {prev.shippingAdj>0?`−¥${fmt(prev.shippingAdj)}`:`+¥${fmt(-prev.shippingAdj)}`}
+                            </span>
+                          </div>
+                        )}
+                        {+item.shippingActual>0&&prev.shippingAdj===0&&(
+                          <div className="prev-row"><span className="prev-lbl">送料（実費=想定）</span><span className="prev-val" style={{color:"var(--md-osv)"}}>±¥0</span></div>
+                        )}
                         <div className="prev-div"/>
                         <div className="prev-total"><span>純利益</span><span style={{color:prev.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(prev.profit)}（{pct(prev.profit,prev.rev)}%）</span></div>
                       </div>
