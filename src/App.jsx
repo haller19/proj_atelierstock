@@ -2719,7 +2719,7 @@ export default function App() {
               <div className="fr">
                 <label className="fl">単位 *</label>
                 <select className="fs" value={partForm.unit} onChange={e=>setPartForm(f=>({...f,unit:e.target.value}))}>
-                  {["個","枚","ペア","m","cm","セット","袋","本"].map(u=><option key={u}>{u}</option>)}
+                  {["個","枚","本","m","cm","㎡","㎠","ml","セット","袋"].map(u=><option key={u}>{u}</option>)}
                 </select>
               </div>
               <div className="fr">
