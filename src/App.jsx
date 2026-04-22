@@ -1102,7 +1102,7 @@ export default function App() {
       rows = rows.map(p => ({
         ...p,
         currentStock: fmtStock(partStockMap[p.id]?.stock ?? 0),
-        avgPrice: p.type === "part" ? "" : Math.round((partStockMap[p.id]?.avgPrice ?? 0) * 100) / 100,
+        avgPrice: Math.round((partStockMap[p.id]?.avgPrice ?? 0) * 100) / 100,
       }));
     }
     if (key === "products") {
