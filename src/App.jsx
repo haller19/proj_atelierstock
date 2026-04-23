@@ -1732,6 +1732,15 @@ export default function App() {
     closeRecipeModal();
   };
 
+  const duplicateRecipe = (pr)=>{
+    const newPr = {
+      ...pr,
+      id: nextId(),
+      name: pr.name + " のコピー",
+    };
+    setProducts(ps=>[...ps, newPr]);
+  };
+
   const deleteRecipe = (id)=>{
     const linked = made.filter(m=>m.productId===id).length;
     const msg = linked>0
@@ -2319,7 +2328,10 @@ export default function App() {
                       <div className="cost-row"><span>人件費</span><span>¥{fmt(cost.laborCost)}</span></div>
                       <div className="cost-div"/>
                       <div className="cost-total-row"><span>原価合計</span><span>¥{fmt(cost.total)}</span></div>
-                      <button style={{marginTop:10,width:"100%",padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditRecipe(pr)}><i className="fal fa-pen" style={{marginRight:4}}/> レシピを編集</button>
+                      <div style={{display:"flex",gap:8,marginTop:10}}>
+                        <button style={{flex:1,padding:"7px 0",border:"1px solid var(--bd)",borderRadius:8,background:"none",color:"var(--t2)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>openEditRecipe(pr)}><i className="fal fa-pen" style={{marginRight:4}}/> 編集</button>
+                        <button style={{flex:1,padding:"7px 0",border:"1px solid var(--md-ol)",borderRadius:8,background:"none",color:"var(--md-osv)",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>duplicateRecipe(pr)}><i className="fal fa-copy" style={{marginRight:4}}/> 複製</button>
+                      </div>
                     </div>
                   )}
                 </div>
