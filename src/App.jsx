@@ -155,20 +155,26 @@ const pct  = (a,b) => b===0?0:Math.round((a/b)*100);
 const DRIVE_CLIENT_ID = import.meta.env.VITE_DRIVE_CLIENT_ID ?? '';
 const DRIVE_FILE_NAME = 'atelier-stock-data.json';
 const DRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
-const DRIVE_TOKEN_KEY = 'as_drive_token';
+const DRIVE_TOKEN_KEY    = 'as_drive_token';
+const DRIVE_AUTOSIGN_KEY = 'as_drive_autosignin'; // 前回サインイン済みフラグ
 
-// sessionStorage にトークンをキャッシュ（約58分）
+// localStorage にトークンをキャッシュ（約58分）—— sessionStorage はタブを閉じると消えるため localStorage を使用
 const getCachedDriveToken = () => {
   try {
-    const d = JSON.parse(sessionStorage.getItem(DRIVE_TOKEN_KEY) || 'null');
+    const d = JSON.parse(localStorage.getItem(DRIVE_TOKEN_KEY) || 'null');
     if (d && d.exp > Date.now()) return d.tok;
-    sessionStorage.removeItem(DRIVE_TOKEN_KEY);
+    localStorage.removeItem(DRIVE_TOKEN_KEY);
   } catch { /* ignore */ }
   return null;
 };
 const setCachedDriveToken = (tok) =>
-  sessionStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ tok, exp: Date.now() + 3500_000 }));
-const clearCachedDriveToken = () => sessionStorage.removeItem(DRIVE_TOKEN_KEY);
+  localStorage.setItem(DRIVE_TOKEN_KEY, JSON.stringify({ tok, exp: Date.now() + 3500_000 }));
+const clearCachedDriveToken = () => {
+  localStorage.removeItem(DRIVE_TOKEN_KEY);
+  localStorage.removeItem(DRIVE_AUTOSIGN_KEY);
+};
+const markAutoSignIn   = () => localStorage.setItem(DRIVE_AUTOSIGN_KEY, '1');
+const shouldAutoSignIn = () => !!localStorage.getItem(DRIVE_AUTOSIGN_KEY);
 
 async function driveFetch(url, token, init = {}) {
   const { headers: extraHdrs, ...rest } = init;
@@ -1292,6 +1298,7 @@ export default function App() {
     const handleToken = async (token) => {
       ref.token = token;
       setCachedDriveToken(token);
+      markAutoSignIn(); // 次回起動時の自動サインイン用フラグ
       // ユーザー情報取得
       try {
         const r    = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
@@ -1338,22 +1345,36 @@ export default function App() {
 
     const initGis = () => {
       if (ref.tokenClient) return;
+      // 自動再接続試行中かどうかのフラグ（失敗時のエラー表示抑制に使用）
+      ref.autoSigningIn = false;
       const tc = window.google.accounts.oauth2.initTokenClient({
         client_id: DRIVE_CLIENT_ID,
         scope:     DRIVE_SCOPE,
         callback:  async (resp) => {
-          if (resp.error) { setDriveStatus('error'); return; }
+          if (resp.error) {
+            if (ref.autoSigningIn) {
+              // 自動再接続失敗はエラーにせず idle に戻す（ユーザーに手動ボタンを見せる）
+              ref.autoSigningIn = false;
+              setDriveStatus('idle');
+            } else {
+              setDriveStatus('error');
+            }
+            return;
+          }
+          ref.autoSigningIn = false;
           await handleToken(resp.access_token);
         },
       });
       ref.tokenClient = tc;
 
-      // sessionStorage にキャッシュ済みトークンがあればダイアログなしで復元
+      // localStorage にキャッシュ済みトークンがあればダイアログなしで復元
       const cached = getCachedDriveToken();
       if (cached) {
         handleToken(cached);
-      } else if (ref.fileId) {
-        // 前回サインイン済み（fileId が LS に残っている）なら自動サインイン試行
+      } else if (shouldAutoSignIn()) {
+        // 前回サインイン済みフラグがあれば、Google セッション Cookie を使って自動再接続
+        ref.autoSigningIn = true;
+        setDriveStatus('loading');
         tc.requestAccessToken({ prompt: '' });
       }
     };

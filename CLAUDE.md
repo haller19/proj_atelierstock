@@ -139,6 +139,8 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 | `as_product_cats` | 作品カテゴリマスタ（管理設定で編集・削除可能） |
 | `as_drive_file_id` | Google Drive ファイルID（同期済みファイルの再利用に使用） |
 | `as_local_saved_at` | ローカルデータの最終保存日時（Drive と Local の新旧比較用） |
+| `as_drive_token` | Google OAuth アクセストークンキャッシュ（`{tok, exp}` JSON、約58分有効） |
+| `as_drive_autosignin` | 前回サインイン済みフラグ（起動時の自動再接続トリガー。サインアウト時に削除） |
 
 ---
 
@@ -545,9 +547,12 @@ LocalStorage をキャッシュとして使いつつ、Google Drive の単一 JS
 
 | タイミング | 処理 |
 |-----------|------|
-| 起動時（サインイン後） | Drive と Local の `lastSavedAt` を比較 → 新しい方を正として古い方を上書き |
+| 起動時（トークンキャッシュあり） | `as_drive_token` から直接復元、Drive 同期を開始（ダイアログなし） |
+| 起動時（キャッシュ切れ・自動サインインフラグあり） | `prompt:''` で Google セッション Cookie を使い無音再接続、失敗時は `idle` に戻る |
+| 起動時（初回 or サインアウト後） | 「同期」ボタン表示のみ（手動サインイン） |
+| サインイン直後 | Drive と Local の `lastSavedAt` を比較 → 新しい方を正として古い方を上書き |
 | データ変更時 | 2 秒デバウンス後に Drive へ自動書き込み |
-| サインアウト時 | ローカルデータはそのまま、Drive 接続のみ解除 |
+| サインアウト時 | ローカルデータはそのまま、Drive 接続・トークンキャッシュ・自動サインインフラグをすべて削除 |
 
 ### 環境変数
 
@@ -572,6 +577,8 @@ VITE_DRIVE_CLIENT_ID=<Google Cloud Console で取得したクライアントID>
 - `buildDrivePayload` / `applyDriveData` は render ごとに `driveRef.current` に格納 → GIS コールバック内の stale closure を防ぐ
 - `applyDriveData` 実行時は `driveRef.current.skipSync = true` を立てて自動保存の無限ループを防止
 - クライアントシークレット（`CLIENT_SECRET`）はブラウザ側に置いてはいけない。`drive.file` スコープのトークンフローはシークレット不要
+- トークンキャッシュは `sessionStorage` ではなく **`localStorage`** に保存する（タブを閉じても保持するため）
+- 自動再接続（`prompt:''`）失敗時は `ref.autoSigningIn` フラグでエラー表示を抑制し、静かに `idle` へ戻す
 
 ### ヘッダー UI
 
@@ -625,7 +632,7 @@ npm run preview  # ビルド結果をローカルで確認
 - 制作記録の編集・削除（現状は追加のみ）
 
 ### インフラ面
-- Google Drive トークン自動リフレッシュ：アクセストークンは 1 時間で失効。長時間使用時の再サインインを自動化
+- Google Drive トークン自動リフレッシュ：アクセストークンは 1 時間で失効。長時間タブを開いたままの場合は再サインインが必要（ページリロード・再起動時は `prompt:''` で自動再接続）
 
 ---
 
@@ -633,6 +640,7 @@ npm run preview  # ビルド結果をローカルで確認
 
 | 日付 | 内容 |
 |------|------|
+| 2026-05-08 | Google Drive セッション永続化：トークンキャッシュを sessionStorage→localStorage に変更、`as_drive_autosignin` フラグで再起動時の自動再接続を実装 |
 | 2026-04-15 | Google Drive 同期機能実装。起動時タイムスタンプ比較・2秒デバウンス自動保存・ユーザーごとのDrive分離 |
 | 2026-04-15 | データ管理（JSON/CSV Export/Import）実装。管理設定→データ管理ページ |
 | 2026-04-15 | 仕入記録に実購入額(税込)フィールド（`totalPrice`）追加。UI表示を「部品数量」に変更 |
