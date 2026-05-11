@@ -290,14 +290,15 @@ function calcPartStock(partId, purchases, disposals, partUsages=[], processings=
   return { stock: totalQty-dispQty-usedQty+adjQty, avgPrice, supMap };
 }
 
-function calcProductCost(product, partStockMap, parts) {
+function calcProductCost(product, partStockMap, parts, taxMult=1) {
   let partCost=0, packCost=0;
   const breakdown = product.ingredients.map(ing=>{
     const part = parts.find(p=>p.id===ing.partId);
     const { avgPrice } = partStockMap[ing.partId]||{avgPrice:0};
-    const lineCost = avgPrice*ing.qty;
+    const taxedPrice = avgPrice * taxMult;
+    const lineCost = taxedPrice*ing.qty;
     if(part?.cat==="梱包材") packCost+=lineCost; else partCost+=lineCost;
-    return { part, qty:ing.qty, unitPrice:avgPrice, lineCost };
+    return { part, qty:ing.qty, unitPrice:taxedPrice, lineCost };
   });
   const total = partCost+packCost+product.shippingCost+product.laborCost;
   return { breakdown, partCost, packCost, shippingCost:product.shippingCost, laborCost:product.laborCost, total };
@@ -811,7 +812,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 .h-drive-pic{width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(255,255,255,.5);object-fit:cover;flex-shrink:0;}
 .h-drive-init{
   width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25);
-  color:#fff;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;
   border:1.5px solid rgba(255,255,255,.5);flex-shrink:0;
 }
 .h-drive-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1.5px solid rgba(0,0,0,.12);}
@@ -951,19 +952,21 @@ export default function App() {
 
   // オーダー品売上ごとの部品原価合計（saleId → 円）
   const orderSaleCostMap = useMemo(()=>{
+    const taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1;
     const m={};
     partUsages.filter(u=>u.type==="order"&&u.saleId).forEach(u=>{
-      const cost=(partStockMap[u.partId]?.avgPrice||0)*u.qty;
+      const cost=(partStockMap[u.partId]?.avgPrice||0)*taxMult*u.qty;
       m[u.saleId]=(m[u.saleId]||0)+cost;
     });
     return m;
-  },[partUsages,partStockMap]);
+  },[partUsages,partStockMap,globalSettings]);
 
   const productCostMap = useMemo(()=>{
+    const taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1;
     const m={};
-    products.forEach(pr=>{ m[pr.id]=calcProductCost(pr,partStockMap,parts); });
+    products.forEach(pr=>{ m[pr.id]=calcProductCost(pr,partStockMap,parts,taxMult); });
     return m;
-  },[products,partStockMap,parts]);
+  },[products,partStockMap,parts,globalSettings]);
 
   const productStockMap = useMemo(()=>{
     const m={};
@@ -1056,6 +1059,7 @@ export default function App() {
   // 売上モーダル プレビュー（アイテム別）
   const salePreview = useMemo(()=>{
     const feeRate = chFeeMap[sf.channel]??0;
+    const taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1;
     return sf.items.map(item=>{
       if(!item.price||!item.qty) return null;
       if(item.saleType!=="order"&&!item.productId) return null;
@@ -1067,12 +1071,12 @@ export default function App() {
         ? ((+item.shippingActual - estimatedShipping) * (+item.qty))
         : 0;
       const cost = item.saleType==="order"
-        ? (item.orderParts||[]).reduce((s,op)=>s+(partStockMap[+op.partId]?.avgPrice||0)*(+op.qty||0),0)
+        ? (item.orderParts||[]).reduce((s,op)=>s+(partStockMap[+op.partId]?.avgPrice||0)*taxMult*(+op.qty||0),0)
         : (costInfo?.total||0)*(+item.qty);
       const profit = rev - cost - fee - shippingAdj;
       return { rev, cost, fee, shippingAdj, estimatedShipping, profit, feeRate };
     });
-  },[sf,productCostMap,chFeeMap,partStockMap]);
+  },[sf,productCostMap,chFeeMap,partStockMap,globalSettings]);
 
   // ── データ管理：エクスポート/インポート ────────────────────────
   const dataSetterMap = {
@@ -2037,7 +2041,7 @@ export default function App() {
               <div className="h-drive-wrap">
                 {driveUser.picture
                   ? <img src={driveUser.picture} className="h-drive-pic" alt={driveUser.name} title={driveUser.email}/>
-                  : <span className="h-drive-init" title={driveUser.email}>{driveUser.name?.[0]}</span>
+                  : <span className="h-drive-init" title={driveUser.email}><i className="fab fa-google"/></span>
                 }
                 <span
                   className={`h-drive-dot ds-${driveStatus}`}
@@ -3925,14 +3929,14 @@ export default function App() {
                       style={{accentColor:"var(--ac)",width:16,height:16}}/>
                     <div>
                       <div style={{fontWeight:600,fontSize:13}}>{opt.label}</div>
-                      {opt.val==="excl"&&<div style={{fontSize:11,color:"var(--t2)",marginTop:2}}>仕入単価（税抜）をそのまま表示。原価計算もこの値を使用</div>}
-                      {opt.val==="incl"&&<div style={{fontSize:11,color:"var(--t2)",marginTop:2}}>税抜単価 × 1.1 で表示。実際の支払額感覚に近い</div>}
+                      {opt.val==="excl"&&<div style={{fontSize:11,color:"var(--t2)",marginTop:2}}>仕入単価（税抜）で表示・計算</div>}
+                      {opt.val==="incl"&&<div style={{fontSize:11,color:"var(--t2)",marginTop:2}}>税抜単価 × 1.1 で表示・計算。免税事業者に適した設定</div>}
                     </div>
                   </label>
                 ))}
               </div>
               <div style={{marginTop:12,fontSize:11,color:"var(--t2)"}}>
-                ※ 原価計算・純利益の計算は常に税抜き価格を使用します
+                ※ 設定変更は表示・原価計算・純利益すべてに即時反映されます
               </div>
             </div>
           </div>
