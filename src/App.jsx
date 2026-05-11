@@ -55,10 +55,10 @@ const CSV_COLS = {
                    exportCols:   ["id","productId","orderName","saleType","productName","date","channel","qty","price","shippingActual","memo","feeRate","consignMemo"],
                    exportHeaders:["ID","作品ID","オーダー品名","種別","作品名","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録メモ"] },
   channels:      { label:"チャネルマスター",cols:["id","name","feeRate","color"],                                                                              headers:["ID","名前","手数料率","カラー"],                                                                       jsonCols:[] },
-  partUsages:    { label:"部品使用記録",    cols:["id","madeId","partId","date","qty","type"],                                                                 headers:["ID","制作記録ID","部品ID","日付","数量","タイプ"],                                                      jsonCols:[] },
+  partUsages:    { label:"部品使用記録",    cols:["id","madeId","saleId","partId","date","qty","type"],                                                        headers:["ID","制作記録ID","売上記録ID","部品ID","日付","数量","タイプ"],                                          jsonCols:[] },
 };
 
-const CSV_ID_COLS = new Set(["id","partId","productId","consigneeId","parentId","madeId","inputPartId","consignRecordId"]);
+const CSV_ID_COLS = new Set(["id","partId","productId","consigneeId","parentId","madeId","saleId","inputPartId","consignRecordId"]);
 
 function csvCell(v, colName) {
   if (v == null) return "";
@@ -903,7 +903,7 @@ export default function App() {
   const [df,  setDf]  = useState({ partId:"",   date:today(),   qty:"",        reason:"" });
   const [editingPurchaseId,  setEditingPurchaseId]  = useState(null);
   const [editingDisposalId,  setEditingDisposalId]  = useState(null);
-  const SF_ITEM_INIT = { saleType:"product", productId:"", orderName:"", qty:"1", price:"", shippingActual:"" };
+  const SF_ITEM_INIT = { saleType:"product", productId:"", orderName:"", qty:"1", price:"", shippingActual:"", orderParts:[] };
   const [sf,  setSf]  = useState({ date:today(), channel:"Minne", memo:"", items:[{...SF_ITEM_INIT}] });
   const MF_INIT = { productId:"", date:today(), qty:"1", note:"", checkedParts:{}, extraParts:[], lossParts:[] };
   const [mf,  setMf]  = useState(MF_INIT);
@@ -1561,10 +1561,13 @@ export default function App() {
     setEditingSaleId(null);
     setShowNewChannel(false);
     setNewChannelInput({name:"",feeRate:""});
-    setSf({ date:today(), channel:channels[0]?.name||"Minne", memo:"", items:[{saleType:"product",productId:"",orderName:"",qty:"1",price:"",shippingActual:""}] });
+    setSf({ date:today(), channel:channels[0]?.name||"Minne", memo:"", items:[{...SF_ITEM_INIT}] });
   };
 
   const openEditSale = (s)=>{
+    const orderParts = s.saleType==="order"
+      ? partUsages.filter(u=>u.saleId===s.id&&u.type==="order").map(u=>({partId:String(u.partId),qty:String(u.qty)}))
+      : [];
     setSf({
       date: s.date, channel: s.channel, memo: s.memo||"",
       items:[{
@@ -1572,6 +1575,7 @@ export default function App() {
         productId: s.saleType!=="order" ? String(s.productId||"") : "",
         orderName: s.saleType==="order" ? (s.orderName||"") : "",
         qty: String(s.qty), price: String(s.price), shippingActual: String(s.shippingActual||""),
+        orderParts,
       }],
     });
     setEditingSaleId(s.id);
@@ -1592,6 +1596,14 @@ export default function App() {
         date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, shippingActual:+item.shippingActual||0, memo:sf.memo,
       };
       setSales(ss=>ss.map(s=>s.id===editingSaleId?{...s,...base}:s));
+      setPartUsages(us=>{
+        const kept = us.filter(u=>u.saleId!==editingSaleId);
+        if(item.saleType!=="order") return kept;
+        const newUsages = (item.orderParts||[])
+          .filter(op=>op.partId&&+op.qty>0)
+          .map(op=>({id:nextId(),saleId:editingSaleId,partId:+op.partId,date:sf.date,qty:+op.qty,type:"order"}));
+        return [...kept,...newUsages];
+      });
     } else {
       const validItems = sf.items.filter(item=>
         item.price&&item.qty&&(item.saleType==="order"?item.orderName:item.productId)
@@ -1605,6 +1617,16 @@ export default function App() {
         date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, shippingActual:+item.shippingActual||0, memo:sf.memo,
       }));
       setSales(p=>[...p,...newRecords]);
+      const newUsages = [];
+      validItems.forEach((item,i)=>{
+        if(item.saleType==="order") {
+          const saleId = newRecords[i].id;
+          (item.orderParts||[]).filter(op=>op.partId&&+op.qty>0).forEach(op=>{
+            newUsages.push({id:nextId(),saleId,partId:+op.partId,date:sf.date,qty:+op.qty,type:"order"});
+          });
+        }
+      });
+      if(newUsages.length>0) setPartUsages(us=>[...us,...newUsages]);
     }
     closeSaleModal();
   };
@@ -1612,6 +1634,7 @@ export default function App() {
   const deleteSale = (id)=>{
     if(confirm("この売上記録を削除しますか？")) {
       setSales(ss=>ss.filter(s=>s.id!==id));
+      setPartUsages(us=>us.filter(u=>u.saleId!==id));
       closeSaleModal();
     }
   };
@@ -3229,9 +3252,26 @@ export default function App() {
                     {/* 商品選択 or オーダー品名 */}
                     {!isConsignEdit && (
                       item.saleType==="order" ? (
-                        <div className="fr"><label className="fl">オーダー品名 *</label>
-                          <input className="fi" placeholder="例: 名入れネックレス" value={item.orderName} onChange={e=>updItem({orderName:e.target.value})}/>
-                        </div>
+                        <>
+                          <div className="fr"><label className="fl">オーダー品名 *</label>
+                            <input className="fi" placeholder="例: 名入れネックレス" value={item.orderName} onChange={e=>updItem({orderName:e.target.value})}/>
+                          </div>
+                          <div className="made-sec" style={{marginTop:8}}>
+                            <div className="made-sec-ttl">使用した部品（在庫から差し引き）</div>
+                            {(item.orderParts||[]).map((op,oi)=>(
+                              <div className="ing-row" key={oi}>
+                                <select className="fs" value={op.partId} onChange={e=>updItem({orderParts:(item.orderParts||[]).map((r,j)=>j===oi?{...r,partId:e.target.value}:r)})}>
+                                  <option value="">部品を選択</option>
+                                  {parts.map(p=>{ const {stock}=partStockMap[p.id]; return <option key={p.id} value={p.id}>{p.name}（{p.variant}）残{fmtStock(stock)}{p.unit}</option>; })}
+                                </select>
+                                <input className="fi" type="number" min="1" placeholder="数量" style={{width:64,flex:"none"}} value={op.qty} onChange={e=>updItem({orderParts:(item.orderParts||[]).map((r,j)=>j===oi?{...r,qty:e.target.value}:r)})}/>
+                                {op.partId && <span style={{fontSize:10,color:"var(--t2)"}}>{parts.find(p=>p.id===+op.partId)?.unit}</span>}
+                                <button className="ing-del" onClick={()=>updItem({orderParts:(item.orderParts||[]).filter((_,j)=>j!==oi)})}><i className="fal fa-times"/></button>
+                              </div>
+                            ))}
+                            <button className="add-row-btn" onClick={()=>updItem({orderParts:[...(item.orderParts||[]),{partId:"",qty:""}]})}>＋ 部品を追加</button>
+                          </div>
+                        </>
                       ) : (
                         <div className="fr"><label className="fl">作品 *</label>
                           <select className="fs" value={item.productId} onChange={e=>{
@@ -3279,7 +3319,7 @@ export default function App() {
               {/* 商品を追加ボタン（新規のみ） */}
               {!editingSaleId && (
                 <button style={{width:"100%",padding:"8px 0",border:"1px dashed var(--ac)",borderRadius:10,background:"none",color:"var(--ac)",fontSize:13,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}
-                  onClick={()=>setSf(f=>({...f,items:[...f.items,{saleType:"product",productId:"",orderName:"",qty:"1",price:"",shippingActual:""}]}))}>
+                  onClick={()=>setSf(f=>({...f,items:[...f.items,{...SF_ITEM_INIT}]}))}>
                   <i className="fas fa-plus" style={{marginRight:5}}/>商品を追加
                 </button>
               )}
@@ -3454,7 +3494,7 @@ export default function App() {
                   ))}
                 </div>
               </div>
-              <button className="btn" style={{marginTop:12}} onClick={saveChannel}>保存</button>
+              <button className="btn btn-d" style={{marginTop:12}} onClick={saveChannel}>保存</button>
               <div className="div"/>
               <button className="btn btn-d" onClick={()=>deleteChannel(editingChannelId)}>このチャネルを削除</button>
             </div>
