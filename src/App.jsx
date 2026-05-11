@@ -812,8 +812,9 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 .h-drive-pic{width:24px;height:24px;border-radius:50%;border:1.5px solid rgba(255,255,255,.5);object-fit:cover;flex-shrink:0;}
 .h-drive-init{
   width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25);
-  color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;
+  color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;
   border:1.5px solid rgba(255,255,255,.5);flex-shrink:0;
+  position:relative;overflow:hidden;
 }
 .h-drive-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1.5px solid rgba(0,0,0,.12);}
 .h-drive-dot.ds-idle{background:#9e9e9e;}
@@ -2039,10 +2040,15 @@ export default function App() {
           {DRIVE_CLIENT_ID && (
             driveUser ? (
               <div className="h-drive-wrap">
-                {driveUser.picture
-                  ? <img src={driveUser.picture} className="h-drive-pic" alt={driveUser.name} title={driveUser.email}/>
-                  : <span className="h-drive-init" title={driveUser.email}><i className="fab fa-google"/></span>
-                }
+                <span className="h-drive-init" title={driveUser.email}>
+                  {driveUser.name?.[0]?.toUpperCase()||"G"}
+                  {driveUser.picture && (
+                    <img src={driveUser.picture}
+                      style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
+                      onError={e=>e.currentTarget.remove()}
+                      alt=""/>
+                  )}
+                </span>
                 <span
                   className={`h-drive-dot ds-${driveStatus}`}
                   title={driveLastSync ? `最終同期: ${driveLastSync.toLocaleTimeString("ja-JP")}` : ({idle:"待機中",loading:"読み込み中",syncing:"同期中",ok:"同期済み",error:"同期エラー"}[driveStatus]||"")}
