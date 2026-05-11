@@ -323,8 +323,8 @@ function calcConsigneeStock(productId, consigneeId, records) {
   return { deliver, sale, ret, loss, stock: deliver-sale-ret-loss };
 }
 
-function calcSaleProfit(sale, productCostMap, chFeeMap={}) {
-  const costInfo = productCostMap[sale.productId];
+function calcSaleProfit(sale, productCostMap, chFeeMap={}, partsCost=0) {
+  const costInfo = sale.saleType!=="order" ? productCostMap[sale.productId] : null;
   const cost = costInfo?.total||0;
   const estimatedShipping = costInfo?.shippingCost||0;
   const revenue = sale.price*sale.qty;
@@ -334,8 +334,9 @@ function calcSaleProfit(sale, productCostMap, chFeeMap={}) {
   const shippingAdj = sale.shippingActual > 0
     ? ((sale.shippingActual - estimatedShipping) * sale.qty)
     : 0;
-  const profit = revenue - cost*sale.qty - channelFee - shippingAdj;
-  return { revenue, totalCost:cost*sale.qty, channelFee, shippingAdj, estimatedShipping, profit, profitRate:pct(profit,revenue), feeRate };
+  const totalCostAmt = sale.saleType==="order" ? partsCost : cost*sale.qty;
+  const profit = revenue - totalCostAmt - channelFee - shippingAdj;
+  return { revenue, totalCost:totalCostAmt, channelFee, shippingAdj, estimatedShipping, profit, profitRate:pct(profit,revenue), feeRate };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -946,6 +947,16 @@ export default function App() {
     return m;
   },[parts,purchases,disposals,partUsages,processings,stockAdjustments,priceAdjustments]);
 
+  // オーダー品売上ごとの部品原価合計（saleId → 円）
+  const orderSaleCostMap = useMemo(()=>{
+    const m={};
+    partUsages.filter(u=>u.type==="order"&&u.saleId).forEach(u=>{
+      const cost=(partStockMap[u.partId]?.avgPrice||0)*u.qty;
+      m[u.saleId]=(m[u.saleId]||0)+cost;
+    });
+    return m;
+  },[partUsages,partStockMap]);
+
   const productCostMap = useMemo(()=>{
     const m={};
     products.forEach(pr=>{ m[pr.id]=calcProductCost(pr,partStockMap,parts); });
@@ -996,7 +1007,7 @@ export default function App() {
   const THIS_MONTH  = today().slice(0,7); // "YYYY-MM"
   const ms          = sales.filter(s=>s.date?.startsWith(THIS_MONTH));
   const totalRev    = ms.reduce((a,s)=>a+s.price*s.qty,0);
-  const totalProfit = ms.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap).profit,0);
+  const totalProfit = ms.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap,orderSaleCostMap[s.id]||0).profit,0);
   const byChannel   = channels
     .map(ch=>({ ch:ch.name, rev:ms.filter(s=>s.channel===ch.name).reduce((a,s)=>a+s.price*s.qty,0) }))
     .filter(b=>b.rev>0);
@@ -1043,17 +1054,19 @@ export default function App() {
       if(!item.price||!item.qty) return null;
       if(item.saleType!=="order"&&!item.productId) return null;
       const costInfo = item.saleType!=="order" ? productCostMap[+item.productId] : null;
-      const cost = costInfo?.total||0;
       const estimatedShipping = costInfo?.shippingCost||0;
       const rev  = +item.price * +item.qty;
       const fee  = Math.round(+item.price*(feeRate/100))*(+item.qty);
       const shippingAdj = +item.shippingActual > 0
         ? ((+item.shippingActual - estimatedShipping) * (+item.qty))
         : 0;
-      const profit = rev - cost*(+item.qty) - fee - shippingAdj;
-      return { rev, cost:cost*(+item.qty), fee, shippingAdj, estimatedShipping, profit, feeRate };
+      const cost = item.saleType==="order"
+        ? (item.orderParts||[]).reduce((s,op)=>s+(partStockMap[+op.partId]?.avgPrice||0)*(+op.qty||0),0)
+        : (costInfo?.total||0)*(+item.qty);
+      const profit = rev - cost - fee - shippingAdj;
+      return { rev, cost, fee, shippingAdj, estimatedShipping, profit, feeRate };
     });
-  },[sf,productCostMap,chFeeMap]);
+  },[sf,productCostMap,chFeeMap,partStockMap]);
 
   // ── データ管理：エクスポート/インポート ────────────────────────
   const dataSetterMap = {
@@ -2622,7 +2635,7 @@ export default function App() {
               );
             })()}
             {displayedSales.map(s=>{
-              const calc  = calcSaleProfit(s,productCostMap,chFeeMap);
+              const calc  = calcSaleProfit(s,productCostMap,chFeeMap,orderSaleCostMap[s.id]||0);
               const isOpen= open[`s${s.id}`];
               return (
                 <div className="sale-card" key={s.id}>
@@ -3295,7 +3308,10 @@ export default function App() {
                     {prev && (
                       <div className="preview-box" style={{marginTop:8}}>
                         <div className="prev-row"><span className="prev-lbl">売上合計</span><span className="prev-val">¥{fmt(prev.rev)}</span></div>
-                        {item.saleType!=="order"&&<div className="prev-row"><span className="prev-lbl">原価（想定送料¥{fmt(prev.estimatedShipping)}込）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>}
+                        {item.saleType!=="order"
+                          ? <div className="prev-row"><span className="prev-lbl">原価（想定送料¥{fmt(prev.estimatedShipping)}込）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>
+                          : prev.cost>0&&<div className="prev-row"><span className="prev-lbl">部品原価</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>
+                        }
                         <div className="prev-row"><span className="prev-lbl">手数料（{prev.feeRate}%）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.fee)}</span></div>
                         {+item.shippingActual>0&&prev.shippingAdj!==0&&(
                           <div className="prev-row">
