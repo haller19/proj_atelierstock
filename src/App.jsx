@@ -2040,19 +2040,11 @@ export default function App() {
           {DRIVE_CLIENT_ID && (
             driveUser ? (
               <div className="h-drive-wrap">
-                <span className="h-drive-init" title={driveUser.email}>
-                  {driveUser.name?.[0]?.toUpperCase()||"G"}
-                  {driveUser.picture && (
-                    <img src={driveUser.picture}
-                      style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover"}}
-                      onError={e=>e.currentTarget.remove()}
-                      alt=""/>
-                  )}
+                <span className={`h-drive-dot ds-${driveStatus}`}/>
+                <span style={{color:"#fff",fontSize:11,fontWeight:500,opacity:.9,whiteSpace:"nowrap"}}>
+                  {{idle:"待機中",loading:"読み込み中",syncing:"同期中",ok:"同期済み",error:"未同期"}[driveStatus]}
+                  {driveStatus==="ok"&&driveLastSync&&` ${driveLastSync.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}`}
                 </span>
-                <span
-                  className={`h-drive-dot ds-${driveStatus}`}
-                  title={driveLastSync ? `最終同期: ${driveLastSync.toLocaleTimeString("ja-JP")}` : ({idle:"待機中",loading:"読み込み中",syncing:"同期中",ok:"同期済み",error:"同期エラー"}[driveStatus]||"")}
-                />
                 <button className="h-drive-out" onClick={handleDriveSignOut} title="Drive同期をサインアウト">
                   <i className="fal fa-sign-out-alt"/>
                 </button>
