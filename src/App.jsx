@@ -26,6 +26,7 @@ const INIT_CHANNELS = [];
 const CH_PALETTE = ["#e8847a","#7ab5e8","#8ae8a8","#e8c87a","#b87ae8","#7ae8d8","#e87ab5","#a8e87a"];
 const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
 const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
+const INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl" };
 
 // モジュールレベルの ID ジェネレーター（コンポーネント外 → purity ルール対象外）
 let _idSeed = Date.now();
@@ -867,6 +868,7 @@ export default function App() {
   const [stockAdjustments,   setStockAdjustments]   = useLS("as_stock_adjustments",   []);
   const [productAdjustments, setProductAdjustments] = useLS("as_product_adjustments", []);
   const [priceAdjustments,   setPriceAdjustments]   = useLS("as_price_adjustments",   []);
+  const [globalSettings,     setGlobalSettings]     = useLS("as_global_settings",     INIT_GLOBAL_SETTINGS);
 
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
@@ -876,7 +878,7 @@ export default function App() {
   const [modal,  setModal]  = useState(null);
   const [open,   setOpen]   = useState({});
   const [selectedConsigneeId, setSelectedConsigneeId] = useState(null); // 委託先詳細ページ用
-  const [mgmtPage, setMgmtPage] = useState(null); // null | "parts_master" | "category_setting" | "history"
+  const [mgmtPage, setMgmtPage] = useState(null); // null | "parts_master" | "category_setting" | "data_manage" | "history" | "global_setting"
   const [showMgmtMenu, setShowMgmtMenu] = useState(false);
   const [partsAddTab, setPartsAddTab] = useState("purchase"); // "purchase" | "part"
   const [historyTab, setHistoryTab] = useState("purchase"); // "purchase" | "disposal"
@@ -1002,6 +1004,10 @@ export default function App() {
   },[parts,cat,q,partSort,partSortDir,partStockMap,purchases]);
 
   const alerts = parts.filter(p=>partStockMap[p.id].stock<partMinStock(p));
+
+  // 加重平均単価の税表示ヘルパー
+  const applyAvgTax = (price) => globalSettings.avgPriceTax==="incl" ? Math.round(price*1.1*100)/100 : price;
+  const avgTaxLabel = globalSettings.avgPriceTax==="incl" ? "（税込）" : "（税抜）";
 
   // 今月集計（動的）
   const THIS_MONTH  = today().slice(0,7); // "YYYY-MM"
@@ -1255,6 +1261,7 @@ export default function App() {
       products, made, consignees, consignRecords, sales, channels,
       stockAdjustments, productAdjustments, priceAdjustments,
       partCatMaster, productCatMaster, partLocMaster,
+      globalSettings,
     },
   });
   driveRef.current.buildPayload = buildDrivePayload;
@@ -1279,6 +1286,7 @@ export default function App() {
     if (Array.isArray(d.partCatMaster))        setPartCatMaster(d.partCatMaster);
     if (Array.isArray(d.productCatMaster)) setProductCatMaster(d.productCatMaster);
     if (Array.isArray(d.partLocMaster))    setPartLocMaster(d.partLocMaster);
+    if (d.globalSettings && typeof d.globalSettings==="object") setGlobalSettings(d.globalSettings);
     localStorage.setItem('as_local_saved_at', new Date().toISOString());
   };
   driveRef.current.applyData = applyDriveData;
@@ -2053,6 +2061,9 @@ export default function App() {
               <>
                 <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,zIndex:149}} onClick={()=>setShowMgmtMenu(false)}/>
                 <div className="mgmt-menu">
+                  <button className="mgmt-menu-item" onClick={()=>{setMgmtPage("global_setting");setShowMgmtMenu(false);}}>
+                    <i className="fal fa-sliders-h" style={{width:16,textAlign:"center"}}/>全体設定
+                  </button>
                   <button className="mgmt-menu-item" onClick={()=>{setMgmtPage("parts_master");setShowMgmtMenu(false);}}>
                     <i className="fal fa-boxes" style={{width:16,textAlign:"center"}}/>部品マスター
                   </button>
@@ -2238,9 +2249,9 @@ export default function App() {
                         <div className="pv">{p.variant}</div>
                         <span className="pbadge">{p.cat}</span>
                         {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
-                        <div className="price-avg">加重平均 ¥{fmtD(avgPrice)} / {p.unit}</div>
+                        <div className="price-avg">加重平均 ¥{fmtD(applyAvgTax(avgPrice))}{avgTaxLabel} / {p.unit}</div>
                         {p.type!=="part" && (supMap.size>1
-                          ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}><i className="fal fa-box" style={{marginRight:3}}/>{s}：¥{pr}</span>)}</div>
+                          ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}><i className="fal fa-box" style={{marginRight:3}}/>{s}：¥{fmtD(applyAvgTax(pr))}{avgTaxLabel}</span>)}</div>
                           : <div className="price-row"><i className="fal fa-box" style={{marginRight:4}}/>{[...supMap.keys()][0]||"—"}</div>
                         )}
                         {p.location && <div className="price-row"><i className="fal fa-map-marker-alt" style={{marginRight:4,color:"var(--ac)"}}/>{p.location}</div>}
@@ -3410,7 +3421,7 @@ export default function App() {
                 <div className="ing-row" key={i}>
                   <select className="fs" value={ing.partId} onChange={e=>updateIng(i,"partId",e.target.value)}>
                     <option value="">部品を選択</option>
-                    {parts.filter(p=>!recipeCatFilter||p.cat===recipeCatFilter).map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）@¥{fmtD(partStockMap[p.id]?.avgPrice||0)}/{p.unit}</option>)}
+                    {parts.filter(p=>!recipeCatFilter||p.cat===recipeCatFilter).map(p=><option key={p.id} value={p.id}>{p.name}（{p.variant}）@¥{fmtD(applyAvgTax(partStockMap[p.id]?.avgPrice||0))}/{p.unit}</option>)}
                   </select>
                   <input className="fi" type="number" placeholder="数量" style={{width:70,flex:"none"}} value={ing.qty} onChange={e=>updateIng(i,"qty",e.target.value)}/>
                   {ing.partId && <span style={{fontSize:10,color:"var(--t2)",whiteSpace:"nowrap"}}>{parts.find(p=>p.id===+ing.partId)?.unit}</span>}
@@ -3893,6 +3904,36 @@ export default function App() {
                 • インポート前に必ず JSON バックアップを取ることをお勧めします。
               </div>
 
+            </div>
+          </div>
+        )}
+
+        {/* ════ 管理設定ページ: 全体設定 ════ */}
+        {mgmtPage==="global_setting" && (
+          <div className="mgmt-page">
+            <div className="mgmt-ph">
+              <button className="mgmt-ph-back" onClick={()=>setMgmtPage(null)}><i className="fal fa-chevron-left"/></button>
+              <div className="mgmt-ph-title"><i className="fal fa-sliders-h" style={{marginRight:8}}/>全体設定</div>
+            </div>
+            <div style={{padding:"16px 14px"}}>
+              <div className="sec-label" style={{marginBottom:8}}>加重平均単価の表示</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {[{val:"excl",label:"税抜き（原価計算用）"},{val:"incl",label:"税込み（実購入額ベース）"}].map(opt=>(
+                  <label key={opt.val} style={{display:"flex",alignItems:"center",gap:10,background:"var(--s2)",border:`2px solid ${globalSettings.avgPriceTax===opt.val?"var(--ac)":"var(--bd)"}`,borderRadius:10,padding:"10px 14px",cursor:"pointer"}}>
+                    <input type="radio" name="avgPriceTax" value={opt.val} checked={globalSettings.avgPriceTax===opt.val}
+                      onChange={()=>setGlobalSettings(g=>({...g,avgPriceTax:opt.val}))}
+                      style={{accentColor:"var(--ac)",width:16,height:16}}/>
+                    <div>
+                      <div style={{fontWeight:600,fontSize:13}}>{opt.label}</div>
+                      {opt.val==="excl"&&<div style={{fontSize:11,color:"var(--t2)",marginTop:2}}>仕入単価（税抜）をそのまま表示。原価計算もこの値を使用</div>}
+                      {opt.val==="incl"&&<div style={{fontSize:11,color:"var(--t2)",marginTop:2}}>税抜単価 × 1.1 で表示。実際の支払額感覚に近い</div>}
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <div style={{marginTop:12,fontSize:11,color:"var(--t2)"}}>
+                ※ 原価計算・純利益の計算は常に税抜き価格を使用します
+              </div>
             </div>
           </div>
         )}
