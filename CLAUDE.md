@@ -92,9 +92,12 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 // note:        メモ
 // 例: A布 0.5m → 1cm角×100枚 + 2cm角×25枚、ロス残り0.05m廃棄
 
-// 部品使用記録（作品制作時に生成）
-{ id, madeId, partId, date, qty, type }
-// type: "recipe" | "extra" | "loss"
+// 部品使用記録（作品制作時・受注売上時に生成）
+{ id, madeId?, saleId?, partId, date, qty, type }
+// type: "recipe" | "extra" | "loss"  ← 制作時
+// type: "order"                       ← 受注売上（saleId セット、madeId なし）
+// madeId: 制作記録ID（type:"recipe"|"extra"|"loss" のとき）
+// saleId: 売上記録ID（type:"order" のとき）
 
 // 作品マスタ（レシピ）
 { id, name, desc, cat, ingredients:[{partId, qty}], shippingCost, laborCost }
@@ -112,9 +115,13 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 // ※ 委託終了時は "return"（返品）または "loss"（廃棄ロス）を qty=現在委託在庫 で登録
 
 // 売上記録
-{ id, productId, date, channel, qty, price, shippingActual, memo, feeRate?, consignRecordId? }
+{ id, saleType?, productId?, orderName?, date, channel, qty, price, shippingActual, memo, feeRate?, consignRecordId? }
+// saleType: undefined（通常の作品売上）| "order"（受注・オーダー品）
+// productId: saleType!=="order" のとき設定
+// orderName: saleType==="order" のとき設定（商品名を自由入力）
 // feeRate: 委託連動売上の場合に設定（chFeeMap より優先）
 // consignRecordId: 委託記録から自動生成された売上に設定
+// ※ 受注売上時に使用した部品は partUsages（type:"order", saleId）で追跡
 
 // チャネルマスタ（動的管理）
 { id, name, feeRate, color }
@@ -141,6 +148,7 @@ const today  = () => new Date().toISOString().slice(0,10); // "YYYY-MM-DD"
 | `as_local_saved_at` | ローカルデータの最終保存日時（Drive と Local の新旧比較用） |
 | `as_drive_token` | Google OAuth アクセストークンキャッシュ（`{tok, exp}` JSON、約58分有効） |
 | `as_drive_autosignin` | 前回サインイン済みフラグ（起動時の自動再接続トリガー。サインアウト時に削除） |
+| `as_global_settings` | 全体設定（`{ avgPriceTax: "excl" \| "incl" }`）。管理設定→全体設定で変更 |
 
 ---
 
@@ -182,17 +190,22 @@ partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
 
 ### 作品原価
 ```
-原価 = 材料費（加重平均単価 × 使用量）+ 梱包費 + 想定送料 + 人件費
+原価 = 材料費（加重平均単価 × taxMult × 使用量）+ 梱包費 + 想定送料 + 人件費
+taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1
 ```
-→ `calcProductCost(product, partStockMap, parts)`
+→ `calcProductCost(product, partStockMap, parts, taxMult=1)`
 
 ### 売上純利益
 ```
 純利益 = 売上合計 - 原価 - チャネル手数料 - 送料実費
+
+// 作品売上: 原価 = productCostMap[productId].total × qty
+// 受注売上: 原価 = orderSaleCostMap[saleId]（使用部品の avgPrice × taxMult × qty の合計）
 手数料率 = sale.feeRate ?? chFeeMap[sale.channel] ?? 0
 ```
-→ `calcSaleProfit(sale, productCostMap, chFeeMap={})`
+→ `calcSaleProfit(sale, productCostMap, chFeeMap={}, partsCost=0)`
 　`sale.feeRate` が設定されている場合は `chFeeMap` より優先（委託連動売上用）
+　`partsCost`：受注売上の部品原価（`orderSaleCostMap[sale.id]||0` を渡す）
 
 ---
 
@@ -209,12 +222,15 @@ partMinStock(p) = p.minStock ?? MIN_STOCK[p.id] ?? 10
 
 ### グローバルナビ（管理設定）
 
-ヘッダー右端に「管理設定」ボタン（`fal fa-cog`）を配置。タップで `modal="mgmt"` が開く。
+ヘッダー右端に「管理設定」ドロップダウンボタン（`fal fa-cog`）を配置。選択すると `mgmtPage` state が変わりフルページで表示。
 
-| mgmtTab | 内容 |
-|---------|------|
-| `parts_master` | 部品マスタ一覧（全件表示）＋部品追加ボタン。既存の部品管理と同等 |
+| mgmtPage | 内容 |
+|----------|------|
+| `global_setting` | 全体設定（`fal fa-sliders-h`）。加重平均単価の税表示切替（税抜き/税込み）。原価計算にも反映 |
+| `parts_master` | 部品マスタ一覧（全件表示）＋部品追加ボタン |
 | `category_setting` | 部品カテゴリ（`as_part_cats`）と作品カテゴリ（`as_product_cats`）の追加・削除 |
+| `data_manage` | JSON/CSV エクスポート・インポート |
+| `history` | 仕入記録・廃棄記録の一覧参照 |
 
 ---
 
@@ -497,7 +513,6 @@ filteredParts.forEach(p => {
 | `parts_history` | タイトル右「履歴参照」ボタンで開く。「仕入記録」「廃棄記録」2タブ切替の一覧表示 |
 | `purchase` | 仕入記録の新規/編集（カード内「仕入」ボタンや履歴から編集） |
 | `disposal` | 廃棄記録の新規/編集（カード内「廃棄」ボタンや履歴から編集） |
-| `mgmt` | 管理設定（`mgmtTab`: `parts_master` / `category_setting`） |
 
 ---
 
@@ -533,6 +548,12 @@ CH_PALETTE = ["#e8847a","#7ab5e8",...]  // チャネル追加時の自動カラ�
 // 部品の最低在庫数（初期10件分のフォールバック用ハードコード）
 // 新規登録部品は part.minStock フィールドで個別管理
 MIN_STOCK = { 1:50, 2:50, 3:100, 4:30, 5:5, 6:10, 7:80, 8:20, 9:100, 10:50 }
+
+// 全体設定（as_global_settings に保存。管理設定→全体設定で変更）
+INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl" }
+// avgPriceTax: "excl"（税抜き・デフォルト）| "incl"（税込み）
+// → 加重平均単価の表示・原価計算・純利益計算すべてに影響（incl 時は avgPrice × 1.1）
+// → 在庫計算（calcPartStock）自体は影響を受けない（avgPrice は常に税抜きで保持）
 ```
 
 ---
@@ -586,9 +607,11 @@ VITE_DRIVE_CLIENT_ID=<Google Cloud Console で取得したクライアントID>
 |------|------|
 | 未設定（`DRIVE_CLIENT_ID` 空） | 非表示 |
 | 未サインイン | `[G] 同期` ボタン（`.h-drive-signin`） |
-| サインイン済み | プロフィール写真 + カラードット + サインアウトボタン（`.h-drive-wrap`） |
+| サインイン済み | カラードット + ステータステキスト + サインアウトボタン（`.h-drive-wrap`） |
 
 **ドット色クラス:** `.ds-idle`（グレー）/ `.ds-loading`,`.ds-syncing`（黄点滅）/ `.ds-ok`（緑）/ `.ds-error`（赤）
+
+**ステータステキスト:** `idle`→待機中 / `loading`→読み込み中 / `syncing`→同期中 / `ok`→同期済み HH:MM / `error`→未同期
 
 ---
 
@@ -640,6 +663,9 @@ npm run preview  # ビルド結果をローカルで確認
 
 | 日付 | 内容 |
 |------|------|
+| 2026-05-11 | 全体設定（`as_global_settings`）追加。加重平均単価の税込み/税抜き切替を管理設定→全体設定ページから操作可能に。表示・原価計算・純利益計算すべてに反映 |
+| 2026-05-11 | 受注売上（`saleType:"order"`）に部品選択機能追加。選択した部品を在庫から差し引き、部品原価を純利益計算に反映。`partUsages` に `saleId` フィールドと `type:"order"` を追加 |
+| 2026-05-11 | Google Drive ヘッダー表示変更：プロフィール写真・名前アバターを廃止し、ステータスドット＋テキスト（待機中/読み込み中/同期中/同期済み HH:MM/未同期）に変更 |
 | 2026-05-08 | Google Drive セッション永続化：トークンキャッシュを sessionStorage→localStorage に変更、`as_drive_autosignin` フラグで再起動時の自動再接続を実装 |
 | 2026-04-15 | Google Drive 同期機能実装。起動時タイムスタンプ比較・2秒デバウンス自動保存・ユーザーごとのDrive分離 |
 | 2026-04-15 | データ管理（JSON/CSV Export/Import）実装。管理設定→データ管理ページ |
