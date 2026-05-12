@@ -1018,6 +1018,20 @@ export default function App() {
   const ms          = sales.filter(s=>s.date?.startsWith(THIS_MONTH));
   const totalRev    = ms.reduce((a,s)=>a+s.price*s.qty,0);
   const totalProfit = ms.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap,orderSaleCostMap[s.id]||0).profit,0);
+
+  // 過去12か月の売上・純利益
+  const monthly12 = useMemo(()=>{
+    const now = new Date();
+    return Array.from({length:12},(_,i)=>{
+      const d = new Date(now.getFullYear(), now.getMonth()-11+i, 1);
+      const ym = d.toISOString().slice(0,7);
+      const ss = sales.filter(s=>s.date?.startsWith(ym));
+      const rev = ss.reduce((a,s)=>a+s.price*s.qty, 0);
+      const profit = ss.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap,orderSaleCostMap[s.id]||0).profit, 0);
+      const isJan = d.getMonth()===0;
+      return { ym, label:`${d.getMonth()+1}月`, yearLabel: isJan?String(d.getFullYear()).slice(2):null, rev, profit, isCurrent: ym===THIS_MONTH };
+    });
+  },[sales,productCostMap,chFeeMap,orderSaleCostMap]);
   const byChannel   = channels
     .map(ch=>({ ch:ch.name, rev:ms.filter(s=>s.channel===ch.name).reduce((a,s)=>a+s.price*s.qty,0) }))
     .filter(b=>b.rev>0);
@@ -2149,6 +2163,42 @@ export default function App() {
                 <div className="ks">種類</div>
               </div>
             </div>
+            {/* 過去12か月 売上・純利益グラフ */}
+            {(()=>{
+              const maxRev = Math.max(...monthly12.map(m=>m.rev), 1);
+              const H = 88;
+              return (
+                <div className="chart-card" style={{marginBottom:10}}>
+                  <div className="chart-ttl">売上・純利益（過去12か月）</div>
+                  <div style={{display:"flex",alignItems:"flex-end",gap:2,height:H+28,paddingBottom:0}}>
+                    {monthly12.map(({ym,label,yearLabel,rev,profit,isCurrent})=>{
+                      const revH  = rev>0 ? Math.max(Math.round((rev/maxRev)*H), 3) : 0;
+                      const pAbs  = Math.abs(profit);
+                      const profH = rev>0 ? Math.max(Math.round((pAbs/maxRev)*H), 2) : 0;
+                      const profCol = profit>=0 ? "var(--ok)" : "var(--low)";
+                      return (
+                        <div key={ym} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center"}}>
+                          <div style={{display:"flex",gap:1,alignItems:"flex-end",height:H,width:"100%",justifyContent:"center"}}>
+                            <div style={{width:"42%",height:revH,background:isCurrent?"var(--md-p)":"var(--md-pc)",borderRadius:"2px 2px 0 0",alignSelf:"flex-end",transition:"height .3s"}}/>
+                            <div style={{width:"42%",height:profH,background:profCol,borderRadius:"2px 2px 0 0",alignSelf:"flex-end",transition:"height .3s",opacity:rev===0?.3:1}}/>
+                          </div>
+                          <div style={{fontSize:8,color:isCurrent?"var(--ac)":"var(--t2)",fontWeight:isCurrent?700:400,marginTop:2,lineHeight:1.3,textAlign:"center"}}>
+                            {yearLabel&&<div style={{fontSize:7,opacity:.7}}>{yearLabel}</div>}
+                            {label}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{display:"flex",gap:14,fontSize:10,color:"var(--t2)",marginTop:6}}>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:1,background:"var(--md-pc)",border:"1px solid var(--md-p)",display:"inline-block"}}/>売上</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:1,background:"var(--ok)",display:"inline-block"}}/>純利益</span>
+                    <span style={{display:"flex",alignItems:"center",gap:4}}><span style={{width:8,height:8,borderRadius:1,background:"var(--low)",display:"inline-block"}}/>赤字</span>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="chart-card">
               <div className="chart-ttl">チャネル別 売上（今月）</div>
               {byChannel.length===0

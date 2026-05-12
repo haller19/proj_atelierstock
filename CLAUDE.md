@@ -247,191 +247,62 @@ taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1
 --md-p:   #9C4A23   /* Primary */
 --md-op:  #FFFFFF   /* On Primary */
 --md-pc:  #FFDBC9   /* Primary Container */
---md-opc: #380E00   /* On Primary Container */
-
-/* Secondary（ウォームブラウン） */
---md-s:      #775748
---md-sec-c:  #FFDBD1   /* Secondary Container — チップ選択時に使用 */
---md-osec:   #2C1510
-
-/* Error */
---md-e:  #BA1A1A
---md-ec: #FFDAD6   /* Error Container */
-
-/* Surface */
---md-bg:  #FFF8F5   /* Background */
---md-osf: #201A17   /* On Surface */
---md-osv: #53433F   /* On Surface Variant（サブテキスト） */
---md-ol:  #857370   /* Outline */
---md-olv: #D8C2BC   /* Outline Variant（ボーダー） */
-
-/* Surface Containers（低→高） */
---md-sc0: #FFFFFF   /* lowest — カード背景 */
---md-sc1: #FCF0EC   /* low — モーダル・展開エリア */
---md-sc3: #F0E3DF   /* high — プレビューボックス */
---md-sc4: #EAE0DC   /* highest — バーグラフ背景 */
-
-/* Elevation */
---md-e1: 0 1px 2px rgba(0,0,0,.1), 0 1px 4px rgba(0,0,0,.07)  /* カード */
---md-e2: 0 2px 4px rgba(0,0,0,.12), 0 2px 8px rgba(0,0,0,.08) /* ホバー時 */
---md-e3: 0 4px 8px rgba(0,0,0,.12), 0 4px 16px rgba(0,0,0,.08) /* FAB・メニュー */
-
-/* Shape scale */
---r-xs: 4px  --r-sm: 8px  --r: 12px  --r-lg: 16px  --r-xl: 28px
-
-/* Legacy aliases（JSXインラインスタイルとの互換用） */
---bg --sf --s2 --bd --tx --t2 --ac --gold --low --low-bg --warn --warn-bg --ok --ok-bg
 ```
 
-#### MD3コンポーネント対応
+---
 
-| 要素 | クラス | MD3パターン |
-|------|--------|------------|
-| ヘッダー | `.header` | Top App Bar（Primary背景・白テキスト） |
-| ナビ | `.nav` / `.nb` / `.ni` | Navigation Bar（アクティブ時 `.ni` に Primary Container ピル） |
-| カード | `.pc` `.prod-stk-card` など | Elevated Card（`--md-sc0` + `--md-e1`） |
-| FAB | `.fab` | Standard FAB（`--md-pc` 背景・`--r-lg` 角丸） |
-| モーダル | `.modal` | Bottom Sheet（28px角丸・`::before` ドラッグハンドル） |
-| ボタン | `.btn-p` | Filled Button（Primary・Pill型 `--r-xl`） |
-| ボタン | `.btn-c` | Outlined Button（Primary文字・`--md-ol` 枠） |
-| ボタン | `.btn-d` | Error Outlined Button |
-| チップ | `.chip` / `.chip.on` | Filter Chip（オン時 Secondary Container） |
-| テキスト欄 | `.fi` / `.fs` | Outlined Text Field（フォーカス時 2px Primary） |
-| サブタブ | `.sub-tabs` / `.stab` | Segmented Control（アクティブ時 白浮き上がり） |
+## ダッシュボード・グラフ設計規約
 
-### フォント
+> デジタル庁「ダッシュボードデザインの実践ガイドブック」（2026年3月31日版）に基づく。
+> HOMEタブのKPIカード・チャネル別売上グラフ・在庫アラート等を実装・改修する際は必ずこの規約を参照すること。
 
-- 見出し・数値: `DM Serif Display`（Google Fonts）
-- 本文・UI: `Zen Kaku Gothic New`（Google Fonts）
+### レイアウト原則
 
-### アイコン：FontAwesome Pro 5.15
+- **左上 → 右下** の視線の流れ：左上＝全体KPI、右下＝詳細グラフ
+- フィルターは**上部か左部**に配置し、影響する情報をその下・右に置く
+- 全体を表す指標を最初に提示し、その後に詳細グラフを配置する
+- 比較対象（目標値・前月比・前年比）を数値と一緒に表示する
 
-FontAwesome Pro 5.15のファイル一式をプロジェクトに同梱して使う。CDNは使わない。
+### グラフ選択基準
 
-**ファイル配置**
-```
-public/
-└── fontawesome/
-    ├── css/
-    │   └── all.min.css
-    └── webfonts/
-        ├── fa-solid-900.woff2
-        ├── fa-regular-400.woff2
-        ├── fa-light-300.woff2
-        └── ... （その他のwebfontsファイル）
-```
+| 用途 | 推奨グラフ | 注意点 |
+|---|---|---|
+| 売上の時間変化・傾向 | 折れ線グラフ | 横軸は必ず時間軸 |
+| チャネル別・月別の数量比較 | 棒グラフ | 原点は必ず 0 |
+| 売上構成比（チャネル割合など） | 円グラフ or 積み上げ棒 | 多くの場合は棒グラフが正確 |
+| 在庫ステータスの傾向 | 折れ線グラフ | 閾値ラインを目標値として併記 |
 
-**index.htmlでの読み込み**
-```html
-<!-- index.html の <head> 内 -->
-<link rel="stylesheet" href="/fontawesome/css/all.min.css">
-```
+### グラフ設計ルール
 
-**使い方（JSX内）**
-```jsx
-<i className="fas fa-box" />   // solid
-<i className="far fa-box" />   // regular
-<i className="fal fa-box" />   // light（Pro限定）
-```
+**必須：**
+- 棒グラフの原点は**必ず 0** にする（途中から始めて差を誇張しない）
+- グラフと凡例を**隣接させ、順番を対応づける**
+- タイトルにグラフ内容とデータ種別（月次・累計など）を記載する
+- データの更新日・集計基準日を明記する
 
-**スタイルの使い分け方針**
-- `fas`（solid）: アクションボタン・FAB・重要な操作
-- `fal`（light）: ナビアイコン・カード内の装飾
-- `far`（regular）: 中間的な用途
+**色使い：**
+- グラフの色数は**1〜5色**に絞る
+- チャネル色は `as_channels` の `color` フィールドを使用し一貫性を保つ
+- **色のみで系列を識別しない**（ラベルや凡例を必ず併記する）
+- 在庫ステータス：`low`（要発注）= Error色 / `warn`（少なめ）= Warning色 / `ok`（良好）= Success色
 
-**主要アイコン対応表**
-| 用途 | アイコン |
-|------|---------|
-| ダッシュボード（HOME） | `fal fa-home` |
-| 部品在庫 | `fal fa-boxes` |
-| 作品 | `fal fa-gem` |
-| 素材加工（旧:仕入・廃棄） | `fal fa-scissors` |
-| 委託 | `fal fa-store` |
-| 売上 | `fal fa-chart-line` |
-| ＋追加（FAB） | `fas fa-plus` |
-| 編集 | `fal fa-pen` |
-| 削除 | `fal fa-trash` |
-| 閉じる・キャンセル | `fal fa-times` |
-| 展開（▼） | `fal fa-chevron-down` |
-| 折りたたみ（▲） | `fal fa-chevron-up` |
-| 在庫アラート | `fas fa-exclamation-triangle` |
-| 在庫補充 | `fal fa-cart-plus` |
-| 母材 | `fal fa-layer-group` |
-| 中間材 | `fal fa-cut` |
-| 加工記録 | `fal fa-scissors` |
-| 委託終了 | `fal fa-flag-checkered` |
-| メモ | `fal fa-sticky-note` |
-| 管理設定 | `fal fa-cog` |
-| 履歴参照 | `fal fa-history` |
-| 場所・住所 | `fal fa-map-marker-alt` |
-| Google Drive サインイン | `fab fa-google` |
-| Drive サインアウト | `fal fa-sign-out-alt` |
+**避けること：**
+- 3D グラフ・ドロップシャドウなど数値と無関係な装飾
+- 意味のない順番（あいうえお順など）での並べ方
+- 全体KPIなしに詳細グラフだけを表示する構成
 
-### 部品マスタの親子関係（母材 ↔ 中間材）
+### KPIカードの原則
 
-- `type:"part"`（中間材）に `parentId` を設定すると、親の母材と連携
-- 品番は親登録時に `{親の品番}-001` の連番で自動付与（手動変更可）
-- 部品在庫一覧：母材の直下にその中間材をインデント表示（左ボーダー＋「↳ 親名 の中間材」ラベル）
-- 仕入モーダル：`type:"part"`（中間材）の部品は選択不可（加工記録から在庫が増える）
+- **今月の全体数値**（売上合計・制作数・在庫数）を最上位に表示
+- 前月比・前年比などの**比較対象を必ず併記**する
+- クリックで詳細タブへ遷移できる導線を設ける（現状の実装を維持）
 
-### 素材加工（加工記録）の入力UX
+---
 
-母材の使用量・ロス量入力は「測りにくい単位」（m²・cm等）になるため、以下の補助UIを設ける。
+## 実装ルール（部品在庫タブ）
 
-**入力欄の仕様**
-- 数値テキスト入力1つ（小数・分数・パーセント表記すべて受け付ける）
-- `parseFraction(str)` ヘルパーで統一的にパース（モジュールレベルに定義）
+### 部品カテゴリフィルタ・ソートロジック
 
-```js
-const parseFraction = (str) => {
-  const s = String(str).trim();
-  if (s.includes("/")) {
-    const [a, b] = s.split("/").map(Number);
-    return b !== 0 ? a / b : NaN;
-  }
-  if (s.endsWith("%")) return parseFloat(s) / 100;
-  return parseFloat(s);
-};
-// 使用例: "1/3" → 0.333, "25%" → 0.25, "0.5" → 0.5
-```
-
-**チップボタン（割り算ショートカット）**
-- 使用量: `[1/2]` `[1/3]` `[1/4]` `[1/5]` `[2/3]` `[3/4]` を横並びで表示
-- ロス量: `[1/10]` `[1/20]` `[1/4]` `[1/5]` `[1/2]` `[3/4]` を横並びで表示
-- タップすると入力欄に分数テキストをセット → 残量プレビューが即更新
-
-**残量プレビュー**
-- 母材選択 + 使用量入力のたびにリアルタイム表示
-- `現在在庫 2.0m → 使用後 1.5m`
-- 在庫が足りない場合は赤字で警告
-
-**切り出し結果セレクト**
-- 母材を選択すると、その母材の子中間材（`parentId` 一致）を optgroup で先頭に表示
-- `<optgroup label="↳ この母材の中間材">` → `<optgroup label="その他の中間材">`
-
-**母材カードの在庫表示**
-- 数値に加えて割合バーを表示（仕入れ累計を100%として残量を視覚化）
-- `████████░░  1.5m / 2.0m（75%）`
-
-**素材加工一覧の表示**
-- 母材IDでグループ化し、グループヘッダーに「{親素材名 →} {母材名} #品番 N件」を表示
-- 親素材を持つ母材を先にソート（`parentId` 有→無の順）
-
-### ダッシュボードの在庫アラートボタン
-
-アラート部品の `type` によってボタンが切り替わる：
-
-| 部品タイプ | ボタン | 色 | 動作 |
-|-----------|--------|-----|------|
-| 通常 / 母材（`type:undefined` or `"material"`） | 在庫補充 | アクセント（テラコッタ） | 仕入モーダルを開く（部品・カテゴリ自動セット） |
-| 中間材（`type:"part"`） | 在庫作成 | グリーン（`--ok`） | 素材加工モーダルを開く（中間材・親の母材を自動セット） |
-
-- `openReplenish(p)` → 仕入モーダル（`pf.partId` セット）
-- `openStockCreate(p)` → 素材加工モーダル（`procForm.outputs[0].partId` にこの中間材、`procForm.inputPartId` に `p.parentId` をセット）
-
-### 部品在庫タブのフィルタ・ソート
-
-**カテゴリフィルタ**（`cat` state）
 - `filteredParts` useMemo でフィルタ。中間材は直接フィルタ対象だが、**親の母材がフィルタに含まれる場合は親経由で挿入**（重複なし）
 - 親が非表示の「孤立中間材」は末尾に追加し、`isChild:true` で表示
 
@@ -529,31 +400,16 @@ INIT_CHANNELS = [
 CH_PALETTE = ["#e8847a","#7ab5e8",...]  // チャネル追加時の自動カラー割り当て
 
 // 部品タイプ（コード内部値 ← UI表示との対応は「用語定義」セクション参照）
-// type:"material" → 母材（布・紐など仕入れ単位のまま保管するもの）
-//                   在庫計算: 仕入累計 - 加工記録inputQty累計 - 廃棄累計
-// type:"part"     → 中間材（切り出し後のサイズ単位で管理するもの）
-//                   在庫計算: 加工記録outputQty累計 - 制作時使用累計 - 廃棄累計
-//                   parentId に親の母材IDを設定可能
-//                   仕入モーダル・parts_addモーダルの仕入タブには表示しない
-// type:undefined  → 通常の部品（従来通り。仕入れ→そのまま使用）
-
-// 部品カテゴリ（as_part_cats に保存。管理設定モーダルで追加・削除）
-// 初期値: ["金具","チェーン","ビーズ","梱包材"]
-// partCats useMemo: マスタリスト + 既存部品の未マスタカテゴリ
-
-// 作品カテゴリ（as_product_cats に保存。管理設定モーダルで追加・削除）
-// 初期値: ["ピアス","イヤリング","ネックレス","ブレスレット","リング","その他"]
-// productCats useMemo: マスタリスト + 既存作品の未マスタカテゴリ
+// type:"material" → 母材
+// type:"part"     → 中間材（parentId に親の母材IDを設定可能）
+// type:undefined  → 通常の部品
 
 // 部品の最低在庫数（初期10件分のフォールバック用ハードコード）
-// 新規登録部品は part.minStock フィールドで個別管理
 MIN_STOCK = { 1:50, 2:50, 3:100, 4:30, 5:5, 6:10, 7:80, 8:20, 9:100, 10:50 }
 
 // 全体設定（as_global_settings に保存。管理設定→全体設定で変更）
 INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl" }
 // avgPriceTax: "excl"（税抜き・デフォルト）| "incl"（税込み）
-// → 加重平均単価の表示・原価計算・純利益計算すべてに影響（incl 時は avgPrice × 1.1）
-// → 在庫計算（calcPartStock）自体は影響を受けない（avgPrice は常に税抜きで保持）
 ```
 
 ---
@@ -562,7 +418,7 @@ INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl" }
 
 ### 概要
 
-LocalStorage をキャッシュとして使いつつ、Google Drive の単一 JSON ファイル（`atelier-stock-data.json`）に全データを同期する。ユーザーごとに自分の Google Drive を使うため、ユーザー間のデータは完全に分離される。
+LocalStorage をキャッシュとして使いつつ、Google Drive の単一 JSON ファイル（`atelier-stock-data.json`）に全データを同期する。
 
 ### 動作フロー
 
@@ -575,49 +431,15 @@ LocalStorage をキャッシュとして使いつつ、Google Drive の単一 JS
 | データ変更時 | 2 秒デバウンス後に Drive へ自動書き込み |
 | サインアウト時 | ローカルデータはそのまま、Drive 接続・トークンキャッシュ・自動サインインフラグをすべて削除 |
 
-### 環境変数
-
-```
-# .env.local（Git管理外）
-VITE_DRIVE_CLIENT_ID=<Google Cloud Console で取得したクライアントID>
-```
-
-`DRIVE_CLIENT_ID` が空文字の場合、Drive 同期 UI は表示されない（LocalStorage のみで動作）。
-
-### Google Cloud Console 設定手順
-
-1. プロジェクト作成 → Google Drive API を有効化
-2. 「認証情報」→「OAuth 2.0 クライアントID」を作成（種類: ウェブアプリケーション）
-3. 承認済みの JavaScript 生成元に `http://localhost:5173` と本番 URL を追加
-4. OAuth 同意画面 → スコープに `drive.file` を追加、テストユーザーを登録
-5. 取得したクライアントID を `.env.local` の `VITE_DRIVE_CLIENT_ID` に設定
-
 ### 実装の注意点
 
-- `driveRef`（useRef）に token・fileId・timer 等の mutable な Drive 状態を集約（state は UI 表示用のみ）
-- `buildDrivePayload` / `applyDriveData` は render ごとに `driveRef.current` に格納 → GIS コールバック内の stale closure を防ぐ
+- `driveRef`（useRef）に token・fileId・timer 等の mutable な Drive 状態を集約
 - `applyDriveData` 実行時は `driveRef.current.skipSync = true` を立てて自動保存の無限ループを防止
-- クライアントシークレット（`CLIENT_SECRET`）はブラウザ側に置いてはいけない。`drive.file` スコープのトークンフローはシークレット不要
-- トークンキャッシュは `sessionStorage` ではなく **`localStorage`** に保存する（タブを閉じても保持するため）
-- 自動再接続（`prompt:''`）失敗時は `ref.autoSigningIn` フラグでエラー表示を抑制し、静かに `idle` へ戻す
-
-### ヘッダー UI
-
-| 状態 | 表示 |
-|------|------|
-| 未設定（`DRIVE_CLIENT_ID` 空） | 非表示 |
-| 未サインイン | `[G] 同期` ボタン（`.h-drive-signin`） |
-| サインイン済み | カラードット + ステータステキスト + サインアウトボタン（`.h-drive-wrap`） |
-
-**ドット色クラス:** `.ds-idle`（グレー）/ `.ds-loading`,`.ds-syncing`（黄点滅）/ `.ds-ok`（緑）/ `.ds-error`（赤）
-
-**ステータステキスト:** `idle`→待機中 / `loading`→読み込み中 / `syncing`→同期中 / `ok`→同期済み HH:MM / `error`→未同期
+- トークンキャッシュは `sessionStorage` ではなく **`localStorage`** に保存する
 
 ---
 
 ## データ管理（Export / Import）
-
-管理設定 → データ管理 ページから操作。
 
 | 機能 | 形式 | 内容 |
 |------|------|------|
@@ -625,8 +447,6 @@ VITE_DRIVE_CLIENT_ID=<Google Cloud Console で取得したクライアントID>
 | JSONインポート | `.json` | 全テーブル上書き（確認ダイアログあり） |
 | CSVエクスポート | `.csv` | テーブル単位。UTF-8 BOM付き（Excel対応） |
 | CSVインポート | `.csv` | マージ（ID重複時上書き）または全置換を選択 |
-
-**売上記録 CSV** にはエクスポート時のみ `productName`（作品名）と `consignMemo`（委託記録メモ）を付与（インポート用の `cols` は変えずに `exportCols` を別定義）。
 
 ---
 
@@ -655,7 +475,7 @@ npm run preview  # ビルド結果をローカルで確認
 - 制作記録の編集・削除（現状は追加のみ）
 
 ### インフラ面
-- Google Drive トークン自動リフレッシュ：アクセストークンは 1 時間で失効。長時間タブを開いたままの場合は再サインインが必要（ページリロード・再起動時は `prompt:''` で自動再接続）
+- Google Drive トークン自動リフレッシュ：アクセストークンは 1 時間で失効
 
 ---
 
@@ -665,19 +485,7 @@ npm run preview  # ビルド結果をローカルで確認
 |------|------|
 | 2026-05-11 | 全体設定（`as_global_settings`）追加。加重平均単価の税込み/税抜き切替を管理設定→全体設定ページから操作可能に。表示・原価計算・純利益計算すべてに反映 |
 | 2026-05-11 | 受注売上（`saleType:"order"`）に部品選択機能追加。選択した部品を在庫から差し引き、部品原価を純利益計算に反映。`partUsages` に `saleId` フィールドと `type:"order"` を追加 |
-| 2026-05-11 | Google Drive ヘッダー表示変更：プロフィール写真・名前アバターを廃止し、ステータスドット＋テキスト（待機中/読み込み中/同期中/同期済み HH:MM/未同期）に変更 |
-| 2026-05-08 | Google Drive セッション永続化：トークンキャッシュを sessionStorage→localStorage に変更、`as_drive_autosignin` フラグで再起動時の自動再接続を実装 |
-| 2026-04-15 | Google Drive 同期機能実装。起動時タイムスタンプ比較・2秒デバウンス自動保存・ユーザーごとのDrive分離 |
-| 2026-04-15 | データ管理（JSON/CSV Export/Import）実装。管理設定→データ管理ページ |
-| 2026-04-15 | 仕入記録に実購入額(税込)フィールド（`totalPrice`）追加。UI表示を「部品数量」に変更 |
-| 2026-04-15 | 売上CSV エクスポートに作品名・委託記録メモを付与 |
-| 2026-04-15 | 部品在庫の残量を小数点以下2桁・四捨五入・末尾ゼロ除去（`fmtStock`）で表示 |
-| 2026-04-14 | デザイン全面刷新：Material Design 3（テラコッタシード）を採用。MD3トークン・Navigation Bar ピル・FAB・Bottom Sheet・ボタン・チップ等を刷新 |
-| 2026-04-14 | 部品在庫の並び順に昇順/降順トグル（`partSortDir`）追加。ソートは母材・通常のみ対象とし、中間材は親グループ内で同基準ソート |
-| 2026-04-14 | 作品を制作フォーム：商品選択時にレシピ全素材を自動チェック済みにし、「使わなかった素材をタップ解除」方式に変更 |
-| 2026-04-14 | 部品在庫カテゴリフィルタ修正：中間材の重複表示バグを修正（`shownIds` で完全な重複排除） |
-| 2026-04-13 | FontAwesome Pro 5.15 アイコン置換（絵文字・テキストアイコン廃止） |
-| 2026-04-13 | 管理設定モーダル追加（部品マスタ・カテゴリ設定）。ヘッダー右端にボタン配置 |
-| 2026-04-13 | 部品在庫タブ: カード内「仕入」「廃棄」ボタン追加、「履歴参照」ボタン追加、FAB→デュアルタブモーダル（`parts_add`）変更 |
-| 2026-04-13 | 「仕入・廃棄」タブを「素材加工」に改称。サブタブ廃止（加工記録のみ直表示） |
-| 2026-04-13 | カテゴリマスタをLocalStorage管理に変更（`as_part_cats` / `as_product_cats`） |
+| 2026-05-11 | Google Drive ヘッダー表示変更：プロフィール写真・名前アバターを廃止し、ステータスドット＋テキストに変更 |
+| 2026-05-08 | Google Drive セッション永続化：トークンキャッシュを sessionStorage→localStorage に変更 |
+| 2026-04-15 | Google Drive 同期機能実装 |
+| 2026-04-14 | デザイン全面刷新：Material Design 3（テラコッタシード）を採用 |
