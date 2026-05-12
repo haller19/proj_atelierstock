@@ -26,7 +26,40 @@ const INIT_CHANNELS = [];
 const CH_PALETTE = ["#e8847a","#7ab5e8","#8ae8a8","#e8c87a","#b87ae8","#7ae8d8","#e87ab5","#a8e87a"];
 const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
 const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
-const INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl" };
+const INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl", theme: "terracotta" };
+
+const THEMES = {
+  terracotta: { label:"テラコッタ",   swatch:"#9C4A23",
+    '--md-p':'#9C4A23','--md-op':'#FFFFFF','--md-pc':'#FFDBC9','--md-opc':'#380E00',
+    '--md-bg':'#FFF8F5','--md-surf':'#FFF8F5','--md-sv':'#F5DDD5',
+    '--md-sc0':'#FFFFFF','--md-sc1':'#FCF0EC','--md-sc2':'#F6E9E5','--md-sc3':'#F0E3DF','--md-sc4':'#EAE0DC',
+    '--md-ol':'#857370','--md-olv':'#D8C2BC','--md-osf':'#201A17','--md-osv':'#53433F',
+  },
+  chocomint: { label:"チョコミント",  swatch:"#2A7A62",
+    '--md-p':'#2A7A62','--md-op':'#FFFFFF','--md-pc':'#ABEEDA','--md-opc':'#00201A',
+    '--md-bg':'#F2FAF7','--md-surf':'#F2FAF7','--md-sv':'#D4EBE3',
+    '--md-sc0':'#FFFFFF','--md-sc1':'#EBF5F1','--md-sc2':'#E4EEE9','--md-sc3':'#DEE8E3','--md-sc4':'#D8E2DD',
+    '--md-ol':'#6D8D88','--md-olv':'#B8D4CC','--md-osf':'#1A211E','--md-osv':'#3D5550',
+  },
+  lime: { label:"ライムグリーン", swatch:"#5A7700",
+    '--md-p':'#5A7700','--md-op':'#FFFFFF','--md-pc':'#D5EF5E','--md-opc':'#1A2300',
+    '--md-bg':'#F8FAF0','--md-surf':'#F8FAF0','--md-sv':'#DDE5C0',
+    '--md-sc0':'#FFFFFF','--md-sc1':'#F2F5E8','--md-sc2':'#EBEFE2','--md-sc3':'#E5E8DC','--md-sc4':'#DDE1D4',
+    '--md-ol':'#7A8469','--md-olv':'#C4C9A8','--md-osf':'#1A1D14','--md-osv':'#444E36',
+  },
+  purple: { label:"パープル",      swatch:"#6750A4",
+    '--md-p':'#6750A4','--md-op':'#FFFFFF','--md-pc':'#EADDFF','--md-opc':'#21005D',
+    '--md-bg':'#FFFBFE','--md-surf':'#FFFBFE','--md-sv':'#E8DEF8',
+    '--md-sc0':'#FFFFFF','--md-sc1':'#F6EFFF','--md-sc2':'#F0E8FA','--md-sc3':'#EAE1F5','--md-sc4':'#E4DAEA',
+    '--md-ol':'#79747E','--md-olv':'#CAC4D0','--md-osf':'#1C1B1F','--md-osv':'#49454F',
+  },
+  midnight: { label:"ミッドナイト", swatch:"#1A3D6B",
+    '--md-p':'#1A3D6B','--md-op':'#FFFFFF','--md-pc':'#D0E4FF','--md-opc':'#001B3A',
+    '--md-bg':'#F5F8FF','--md-surf':'#F5F8FF','--md-sv':'#DAE3F5',
+    '--md-sc0':'#FFFFFF','--md-sc1':'#EEF2FC','--md-sc2':'#E7EBF5','--md-sc3':'#E0E5EF','--md-sc4':'#DADEE8',
+    '--md-ol':'#6E7A8A','--md-olv':'#BCC5D8','--md-osf':'#181C22','--md-osv':'#404957',
+  },
+};
 
 // モジュールレベルの ID ジェネレーター（コンポーネント外 → purity ルール対象外）
 let _idSeed = Date.now();
@@ -406,7 +439,7 @@ const CSS = `
 }
 
 body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:var(--md-osf);min-height:100vh;}
-.app{max-width:900px;margin:0 auto;padding:0 0 80px;}
+.app{padding:0 0 80px;}
 
 /* ─── TOP APP BAR ─── */
 .header{
@@ -872,6 +905,12 @@ export default function App() {
   const [priceAdjustments,   setPriceAdjustments]   = useLS("as_price_adjustments",   []);
   const [globalSettings,     setGlobalSettings]     = useLS("as_global_settings",     INIT_GLOBAL_SETTINGS);
 
+  useEffect(() => {
+    const t = THEMES[globalSettings.theme] || THEMES.terracotta;
+    const root = document.documentElement;
+    Object.entries(t).forEach(([k,v]) => { if(k.startsWith('--')) root.style.setProperty(k,v); });
+  }, [globalSettings.theme]);
+
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
   const [subTab2, setSubTab2] = useState("stock"); // prodstock: "stock" | "recipe"
@@ -1024,7 +1063,7 @@ export default function App() {
     const now = new Date();
     return Array.from({length:12},(_,i)=>{
       const d = new Date(now.getFullYear(), now.getMonth()-11+i, 1);
-      const ym = d.toISOString().slice(0,7);
+      const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
       const ss = sales.filter(s=>s.date?.startsWith(ym));
       const rev = ss.reduce((a,s)=>a+s.price*s.qty, 0);
       const profit = ss.reduce((a,s)=>a+calcSaleProfit(s,productCostMap,chFeeMap,orderSaleCostMap[s.id]||0).profit, 0);
@@ -3985,6 +4024,26 @@ export default function App() {
               </div>
               <div style={{marginTop:12,fontSize:11,color:"var(--t2)"}}>
                 ※ 設定変更は表示・原価計算・純利益すべてに即時反映されます
+              </div>
+
+              <div className="sec-label" style={{marginBottom:8,marginTop:24}}>カラーテーマ</div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {Object.entries(THEMES).map(([key,t])=>{
+                  const active = (globalSettings.theme||"terracotta")===key;
+                  return (
+                    <label key={key} style={{display:"flex",alignItems:"center",gap:12,background:"var(--s2)",border:`2px solid ${active?"var(--ac)":"var(--bd)"}`,borderRadius:10,padding:"10px 14px",cursor:"pointer"}}>
+                      <input type="radio" name="colorTheme" value={key} checked={active}
+                        onChange={()=>setGlobalSettings(g=>({...g,theme:key}))}
+                        style={{display:"none"}}/>
+                      <span style={{width:22,height:22,borderRadius:"50%",background:t.swatch,flexShrink:0,boxShadow:"0 1px 4px rgba(0,0,0,.3)"}}/>
+                      <span style={{fontSize:13,fontWeight:active?700:400,flex:1}}>{t.label}</span>
+                      {active && <i className="fal fa-check" style={{color:"var(--ac)",fontSize:14}}/>}
+                    </label>
+                  );
+                })}
+              </div>
+              <div style={{marginTop:12,fontSize:11,color:"var(--t2)"}}>
+                ※ テーマ変更は即時反映されます
               </div>
             </div>
           </div>
