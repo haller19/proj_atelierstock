@@ -86,8 +86,8 @@ const CSV_COLS = {
   consignees:    { label:"委託先マスター",  cols:["id","name","address","memo"],                                                                               headers:["ID","名前","住所","メモ"],                                                                             jsonCols:[] },
   consignRecords:{ label:"委託記録",        cols:["id","productId","consigneeId","date","type","qty","salePrice","feeRate","memo"],                            headers:["ID","作品ID","委託先ID","日付","種別","数量","販売価格","手数料率","メモ"],                              jsonCols:[] },
   sales:         { label:"売上記録",        cols:["id","productId","orderName","saleType","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"], headers:["ID","作品ID","オーダー品名","種別","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"], jsonCols:[],
-                   exportCols:   ["id","productId","orderName","saleType","productName","date","channel","qty","price","shippingActual","memo","feeRate","consignMemo"],
-                   exportHeaders:["ID","作品ID","オーダー品名","種別","作品名","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録メモ"] },
+                   exportCols:   ["id","productId","orderName","saleType","productName","date","channel","qty","price","shippingActual","feeRate","channelFee","totalCost","profit","profitRate","memo","consignMemo"],
+                   exportHeaders:["ID","作品ID","オーダー品名","種別","作品名","日付","チャネル","数量","価格","実送料","手数料率(%)","手数料額","原価","純利益","利益率(%)","メモ","委託記録メモ"] },
   channels:      { label:"チャネルマスター",cols:["id","name","feeRate","color"],                                                                              headers:["ID","名前","手数料率","カラー"],                                                                       jsonCols:[] },
   partUsages:    { label:"部品使用記録",    cols:["id","madeId","saleId","partId","date","qty","type"],                                                        headers:["ID","制作記録ID","売上記録ID","部品ID","日付","数量","タイプ"],                                          jsonCols:[] },
 };
@@ -572,8 +572,8 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
   border:1px solid var(--md-ol);background:transparent;cursor:pointer;
   color:var(--md-osv);transition:all .15s;display:inline-flex;align-items:center;gap:4px;font-weight:500;
 }
-.chip:hover{background:rgba(156,74,35,.07);border-color:var(--md-p);color:var(--md-p);}
-.chip.on{background:var(--md-sec-c);border-color:transparent;color:var(--md-osec);}
+.chip:hover{background:var(--md-sc2);border-color:var(--md-p);color:var(--md-p);}
+.chip.on{background:var(--md-pc);border-color:transparent;color:var(--md-opc);}
 .si{
   flex:1;min-width:100px;padding:8px 14px;
   border:1px solid var(--md-ol);border-radius:var(--r-xl);
@@ -822,7 +822,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
   font-size:13px;cursor:pointer;margin-top:6px;
   font-weight:500;transition:background .15s;
 }
-.btn-c:hover{background:rgba(156,74,35,.07);}
+.btn-c:hover{background:var(--md-sc2);}
 .btn-d{
   width:100%;padding:12px;border-radius:var(--r-xl);
   background:transparent;color:var(--md-e);
@@ -1172,13 +1172,20 @@ export default function App() {
     const def = CSV_COLS[key];
     let rows  = dataValueMap()[key] ?? [];
     if (key === "sales") {
-      rows = rows.map(s => ({
-        ...s,
-        productName: products.find(p => p.id === s.productId)?.name ?? "",
-        consignMemo: s.consignRecordId != null
-          ? (consignRecords.find(r => r.id === s.consignRecordId)?.memo ?? "")
-          : "",
-      }));
+      rows = rows.map(s => {
+        const calc = calcSaleProfit(s, productCostMap, chFeeMap, orderSaleCostMap[s.id] || 0);
+        return {
+          ...s,
+          productName: products.find(p => p.id === s.productId)?.name ?? "",
+          consignMemo: s.consignRecordId != null
+            ? (consignRecords.find(r => r.id === s.consignRecordId)?.memo ?? "")
+            : "",
+          channelFee:  Math.round(calc.channelFee),
+          totalCost:   Math.round(calc.totalCost),
+          profit:      Math.round(calc.profit),
+          profitRate:  calc.profitRate,
+        };
+      });
     }
     // 棚卸用：現在庫数・加重平均単価を付与
     if (key === "parts") {
