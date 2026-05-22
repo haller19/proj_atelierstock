@@ -425,6 +425,10 @@ export default function App() {
     Object.entries(t).forEach(([k,v]) => { if(k.startsWith('--')) root.style.setProperty(k,v); });
   }, [globalSettings.theme]);
 
+  const [partView,    setPartView]    = useState("card"); // "card" | "table"
+  const [editCell,    setEditCell]    = useState(null);   // {id:number|"new",col}|null
+  const [rowDraft,    setRowDraft]    = useState({});     // {[id]:editFields}
+
   useEffect(()=>{
     if(editInputRef.current){ editInputRef.current.focus(); editInputRef.current.select?.(); }
   }, [editCell]);
@@ -445,9 +449,6 @@ export default function App() {
   const [newProductCatInput, setNewProductCatInput] = useState("");
   const [partSort, setPartSort] = useState("name"); // "name" | "stock" | "update"
   const [partSortDir, setPartSortDir] = useState("asc"); // "asc" | "desc"
-  const [partView,    setPartView]    = useState("card"); // "card" | "table"
-  const [editCell,    setEditCell]    = useState(null);   // {id:number|"new",col}|null
-  const [rowDraft,    setRowDraft]    = useState({});     // {[id]:editFields}
   // 保管場所
   const [showNewPartLoc,  setShowNewPartLoc]  = useState(false);
   const [newPartLocInput, setNewPartLocInput] = useState("");
