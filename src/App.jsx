@@ -26,6 +26,7 @@ const PART_CATS = [];
 const INIT_CHANNELS = [];
 const CH_PALETTE = ["#e8847a","#7ab5e8","#8ae8a8","#e8c87a","#b87ae8","#7ae8d8","#e87ab5","#a8e87a"];
 const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
+const TABLE_EDIT_COLS = ["cat","name","variant","unit","hinban","minStock","location"];
 const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
 const INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl", theme: "terracotta" };
 
@@ -424,6 +425,10 @@ export default function App() {
     Object.entries(t).forEach(([k,v]) => { if(k.startsWith('--')) root.style.setProperty(k,v); });
   }, [globalSettings.theme]);
 
+  useEffect(()=>{
+    if(editInputRef.current){ editInputRef.current.focus(); editInputRef.current.select?.(); }
+  }, [editCell]);
+
   const [tab,    setTab]    = useState("dashboard");
   const [subTab,  setSubTab]  = useState("purchase");
   const [subTab2, setSubTab2] = useState("stock"); // prodstock: "stock" | "recipe"
@@ -440,6 +445,9 @@ export default function App() {
   const [newProductCatInput, setNewProductCatInput] = useState("");
   const [partSort, setPartSort] = useState("name"); // "name" | "stock" | "update"
   const [partSortDir, setPartSortDir] = useState("asc"); // "asc" | "desc"
+  const [partView,    setPartView]    = useState("card"); // "card" | "table"
+  const [editCell,    setEditCell]    = useState(null);   // {id:number|"new",col}|null
+  const [rowDraft,    setRowDraft]    = useState({});     // {[id]:editFields}
   // 保管場所
   const [showNewPartLoc,  setShowNewPartLoc]  = useState(false);
   const [newPartLocInput, setNewPartLocInput] = useState("");
@@ -489,6 +497,8 @@ export default function App() {
     tokenClient: null,
     buildPayload: null, applyData: null,
   });
+  const editInputRef = useRef(null);
+  const tableTabbing = useRef(false);
 
   const tog = key => setOpen(p=>({...p,[key]:!p[key]}));
 
@@ -558,6 +568,35 @@ export default function App() {
     orphans.sort(sortFn);
     return [...topLevel, ...orphans];
   },[parts,cat,q,partSort,partSortDir,partStockMap,purchases]);
+
+  const tableRows = useMemo(()=>{
+    const dir2 = partSortDir==="asc" ? 1 : -1;
+    const lastDateOf = id => { const rs=purchases.filter(p=>p.partId===id); return rs.length?rs.reduce((mx,p)=>p.date>mx?p.date:mx,""):""; };
+    const childSortFn = (a,b) => {
+      if(partSort==="name")     return dir2 * a.name.localeCompare(b.name,"ja");
+      if(partSort==="stock")    return dir2 * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
+      if(partSort==="update")   return dir2 * lastDateOf(a.id).localeCompare(lastDateOf(b.id));
+      if(partSort==="location") return dir2 * (a.location||"").localeCompare(b.location||"","ja");
+      return 0;
+    };
+    const shownIds = new Set();
+    const rows = [];
+    filteredParts.forEach(p=>{
+      if(shownIds.has(p.id)) return;
+      shownIds.add(p.id);
+      if(p.type==="material"){
+        rows.push({p, isChild:false});
+        [...parts.filter(c=>c.type==="part"&&c.parentId===p.id)].sort(childSortFn).forEach(child=>{
+          if(!shownIds.has(child.id)){ shownIds.add(child.id); rows.push({p:child, isChild:true}); }
+        });
+      } else if(p.type==="part" && p.parentId){
+        rows.push({p, isChild:true});
+      } else {
+        rows.push({p, isChild:false});
+      }
+    });
+    return rows;
+  },[filteredParts, parts, partSort, partSortDir, partStockMap, purchases]);
 
   const alerts = parts.filter(p=>partStockMap[p.id].stock<partMinStock(p));
 
@@ -1458,6 +1497,100 @@ export default function App() {
     setModal(null);
   };
 
+  // ── テーブルビュー インライン編集 ──────────────────────────────────────
+  const startTableEdit = (id, col, partData) => {
+    if(!rowDraft[id]) {
+      const init = id==="new"
+        ? {cat:partCats[0]||"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", location:""}
+        : {cat:partData.cat||"", name:partData.name||"", variant:partData.variant||"", unit:partData.unit||"", hinban:partData.hinban||"", minStock:String(partData.minStock??partMinStock(partData)), location:partData.location||""};
+      setRowDraft(d=>({...d, [id]:init}));
+    }
+    setEditCell({id, col});
+  };
+
+  const commitTableRow = (id) => {
+    const d = rowDraft[id];
+    if(!d) return;
+    if(id==="new") {
+      if(!(d.name||"").trim()) { setRowDraft(dft=>{const n={...dft}; delete n["new"]; return n;}); return; }
+      const np = { id:nextId(), cat:d.cat||(partCats[0]||"金具"), name:d.name.trim(), variant:d.variant||"", unit:d.unit||"個", hinban:d.hinban||"", minStock:+d.minStock||10 };
+      if(d.location) np.location = d.location;
+      if(np.cat && !partCats.includes(np.cat)) setPartCatMaster(m=>[...m, np.cat]);
+      setParts(ps=>[...ps, np]);
+      setRowDraft(dft=>{const n={...dft}; delete n["new"]; return n;});
+    } else {
+      setParts(ps=>ps.map(p=>{
+        if(p.id!==id) return p;
+        const upd = {...p, cat:d.cat||p.cat, name:(d.name||"").trim()||p.name, variant:d.variant??p.variant, unit:d.unit||p.unit, hinban:d.hinban??p.hinban, minStock:+d.minStock||p.minStock||10};
+        if(d.location) upd.location = d.location; else if(d.location==="") delete upd.location;
+        return upd;
+      }));
+      setRowDraft(dft=>{const n={...dft}; delete n[id]; return n;});
+    }
+  };
+
+  const handleTableKey = (e, id, col, rowIdx) => {
+    if(e.key==="Tab") {
+      e.preventDefault();
+      tableTabbing.current = true;
+      const ci = TABLE_EDIT_COLS.indexOf(col);
+      if(!e.shiftKey) {
+        if(ci < TABLE_EDIT_COLS.length-1) {
+          setEditCell({id, col:TABLE_EDIT_COLS[ci+1]});
+        } else {
+          commitTableRow(id);
+          const nextIdx = id==="new" ? -1 : rowIdx+1;
+          if(nextIdx>=0 && nextIdx<tableRows.length) {
+            const nxt = tableRows[nextIdx];
+            setRowDraft(d=>({...d, [nxt.p.id]:{cat:nxt.p.cat||"",name:nxt.p.name||"",variant:nxt.p.variant||"",unit:nxt.p.unit||"",hinban:nxt.p.hinban||"",minStock:String(nxt.p.minStock??partMinStock(nxt.p)),location:nxt.p.location||""}}));
+            setEditCell({id:nxt.p.id, col:TABLE_EDIT_COLS[0]});
+          } else {
+            setRowDraft(d=>{const n={...d}; delete n["new"]; return n;});
+            setEditCell({id:"new", col:TABLE_EDIT_COLS[0]});
+          }
+        }
+      } else {
+        if(ci>0) {
+          setEditCell({id, col:TABLE_EDIT_COLS[ci-1]});
+        } else {
+          commitTableRow(id);
+          const prevIdx = id==="new" ? tableRows.length-1 : rowIdx-1;
+          if(prevIdx>=0) {
+            const prv = tableRows[prevIdx];
+            setRowDraft(d=>({...d, [prv.p.id]:{cat:prv.p.cat||"",name:prv.p.name||"",variant:prv.p.variant||"",unit:prv.p.unit||"",hinban:prv.p.hinban||"",minStock:String(prv.p.minStock??partMinStock(prv.p)),location:prv.p.location||""}}));
+            setEditCell({id:prv.p.id, col:TABLE_EDIT_COLS[TABLE_EDIT_COLS.length-1]});
+          } else {
+            setEditCell(null);
+          }
+        }
+      }
+      setTimeout(()=>{ tableTabbing.current = false; }, 0);
+    } else if(e.key==="Enter") {
+      e.preventDefault();
+      commitTableRow(id);
+      setEditCell(null);
+    } else if(e.key==="Escape") {
+      setRowDraft(d=>{const n={...d}; delete n[id]; return n;});
+      setEditCell(null);
+    }
+  };
+
+  const handleTableBlur = (id) => {
+    if(tableTabbing.current) return;
+    commitTableRow(id);
+    setEditCell(null);
+  };
+
+  const renderTCI = (id, col, val, rowIdx) => {
+    const newRowInit = {cat:partCats[0]||"金具",name:"",variant:"",unit:"個",hinban:"",minStock:"10",location:""};
+    const onChange = e => setRowDraft(dft=>({...dft, [id]:{...(dft[id]||(id==="new"?newRowInit:{})), [col]:e.target.value}}));
+    const onKD = e => handleTableKey(e,id,col,rowIdx);
+    const onBl = () => handleTableBlur(id);
+    if(col==="cat") return <select ref={editInputRef} className="pt-inp" value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}>{partCats.map(c=><option key={c} value={c}>{c}</option>)}</select>;
+    if(col==="location") return <select ref={editInputRef} className="pt-inp" value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}><option value="">未設定</option>{partLocMaster.map(l=><option key={l} value={l}>{l}</option>)}</select>;
+    return <input ref={editInputRef} className="pt-inp" type={col==="minStock"?"number":"text"} value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}/>;
+  };
+
   const deletePart = (id) => {
     if(confirm("この部品を削除しますか？\n関連する仕入・廃棄・使用記録は残ります。")) {
       setParts(ps => ps.filter(p => p.id !== id));
@@ -1778,9 +1911,15 @@ export default function App() {
           <div className="sec">
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:13}}>
               <div className="sec-title" style={{marginBottom:0}}>部品在庫</div>
-              <button style={{fontSize:11,background:"none",border:"1px solid var(--bd)",borderRadius:8,color:"var(--t2)",cursor:"pointer",padding:"5px 10px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}} onClick={()=>{setHistoryTab("purchase");setMgmtPage("history");}}>
-                <i className="fal fa-history"/>履歴参照
-              </button>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <div style={{display:"flex",border:"1px solid var(--bd)",borderRadius:8,overflow:"hidden"}}>
+                  <button className={`pt-vbtn${partView==="card"?" on":""}`} title="カードビュー" onClick={()=>setPartView("card")}><i className="fal fa-th-large"/></button>
+                  <button className={`pt-vbtn${partView==="table"?" on":""}`} title="テーブルビュー" onClick={()=>{setPartView("table");setEditCell(null);setRowDraft({});}}><i className="fal fa-table"/></button>
+                </div>
+                <button style={{fontSize:11,background:"none",border:"1px solid var(--bd)",borderRadius:8,color:"var(--t2)",cursor:"pointer",padding:"5px 10px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4}} onClick={()=>{setHistoryTab("purchase");setMgmtPage("history");}}>
+                  <i className="fal fa-history"/>履歴参照
+                </button>
+              </div>
             </div>
             <div className="filter-row">
               {["すべて",...partCats].map(c=><button key={c} className={`chip ${cat===c?"on":""}`} onClick={()=>setCat(c)}>{c}</button>)}
@@ -1804,95 +1943,162 @@ export default function App() {
                 }
               </button>
             </div>
-            {(()=>{
-              // Build grouped list: 母材の直後に子（中間材）をソートして挿入
-              const dir2 = partSortDir==="asc" ? 1 : -1;
-              const lastDateOf2 = id => { const rs=purchases.filter(p=>p.partId===id); return rs.length?rs.reduce((mx,p)=>p.date>mx?p.date:mx,""):""; };
-              const childSortFn = (a,b) => {
-                if(partSort==="name")     return dir2 * a.name.localeCompare(b.name,"ja");
-                if(partSort==="stock")    return dir2 * ((partStockMap[a.id]?.stock||0)-(partStockMap[b.id]?.stock||0));
-                if(partSort==="update")   return dir2 * lastDateOf2(a.id).localeCompare(lastDateOf2(b.id));
-                if(partSort==="location") return dir2 * (a.location||"").localeCompare(b.location||"","ja");
-                return 0;
-              };
-              const shownIds = new Set();
-              const rows = [];
-              filteredParts.forEach(p=>{
-                if(shownIds.has(p.id)) return;
-                shownIds.add(p.id);
-                if(p.type==="material"){
-                  // 母材: 本体を追加し、子中間材を同じ基準でソートして直後に挿入
-                  rows.push({p, isChild:false});
-                  const children = parts.filter(c=>c.type==="part"&&c.parentId===p.id);
-                  [...children].sort(childSortFn).forEach(child=>{
-                    if(!shownIds.has(child.id)){
-                      shownIds.add(child.id);
-                      rows.push({p:child, isChild:true});
-                    }
-                  });
-                } else if(p.type==="part" && p.parentId){
-                  // 孤立中間材: 親が非表示でも isChild:true で表示
-                  rows.push({p, isChild:true});
-                } else {
-                  // 通常の部品
-                  rows.push({p, isChild:false});
-                }
-              });
-              return rows.map(({p, isChild})=>{
-                const {stock,avgPrice,supMap}=partStockMap[p.id]||{stock:0,avgPrice:0,supMap:new Map()};
-                const st=partSt(p.id,stock);
-                const totalBought = p.type==="material" ? purchases.filter(pu=>pu.partId===p.id).reduce((s,pu)=>s+pu.qty,0) : 0;
-                const stockPct    = totalBought>0 ? Math.max(0,Math.min(100,Math.round(stock/totalBought*100))) : 0;
-                const parentPart  = isChild ? parts.find(pp=>pp.id===p.parentId) : null;
-                return (
-                  <div key={p.id} style={isChild?{paddingLeft:16,position:"relative"}:{}}>
-                    {isChild && <div style={{position:"absolute",left:8,top:0,bottom:0,width:2,background:"var(--bd)",borderRadius:2}}/>}
-                    <div className={`pc ${st}`} style={isChild?{borderLeftColor:"var(--ac)",borderLeftWidth:3}:{}}>
-                      <div style={{flex:1}}>
-                        {isChild && parentPart && (
-                          <div style={{fontSize:10,color:"var(--t2)",marginBottom:2,display:"flex",alignItems:"center",gap:4}}>
-                            <span style={{color:"var(--ac)"}}>↳</span>
-                            <span>{parentPart.name}{parentPart.hinban?` #${parentPart.hinban}`:""} の中間材</span>
-                          </div>
-                        )}
-                        <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
-                        <div className="pv">{p.variant}</div>
-                        <span className="pbadge">{p.cat}</span>
-                        {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
-                        <div className="price-avg">加重平均 ¥{fmtD(applyAvgTax(avgPrice))}{avgTaxLabel} / {p.unit}</div>
-                        {p.type!=="part" && (supMap.size>1
-                          ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}><i className="fal fa-box" style={{marginRight:3}}/>{s}：¥{fmtD(applyAvgTax(pr))}{avgTaxLabel}</span>)}</div>
-                          : <div className="price-row"><i className="fal fa-box" style={{marginRight:4}}/>{[...supMap.keys()][0]||"—"}</div>
-                        )}
-                        {p.location && <div className="price-row"><i className="fal fa-map-marker-alt" style={{marginRight:4,color:"var(--ac)"}}/>{p.location}</div>}
-                        {p.type==="material" && totalBought>0 && (
-                          <div style={{marginTop:6}}>
-                            <div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
-                              <div style={{height:"100%",width:`${stockPct}%`,background:stockPct>50?"var(--ok)":stockPct>20?"var(--warn)":"var(--low)",borderRadius:3,transition:"width .3s"}}/>
-                            </div>
-                            <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{fmtStock(stock)}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
-                          </div>
-                        )}
-                        <div style={{marginTop:6,display:"flex",gap:5,flexWrap:"wrap"}}>
-                          <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
-                          {p.type==="part"
-                            ? <button style={{background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openStockCreate(p)}><i className="fal fa-cut" style={{marginRight:4}}/>加工</button>
-                            : <button style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>仕入</button>
-                          }
-                          <button style={{background:"none",color:"var(--low)",border:"1px solid var(--low)",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>{setDf({partId:String(p.id),date:today(),qty:"",reason:""});setEditingDisposalId(null);setModal("disposal");}}><i className="fal fa-trash" style={{marginRight:4}}/>廃棄</button>
+            {/* ── カードビュー ── */}
+            {partView==="card" && tableRows.map(({p, isChild})=>{
+              const {stock,avgPrice,supMap}=partStockMap[p.id]||{stock:0,avgPrice:0,supMap:new Map()};
+              const st=partSt(p.id,stock);
+              const totalBought = p.type==="material" ? purchases.filter(pu=>pu.partId===p.id).reduce((s,pu)=>s+pu.qty,0) : 0;
+              const stockPct    = totalBought>0 ? Math.max(0,Math.min(100,Math.round(stock/totalBought*100))) : 0;
+              const parentPart  = isChild ? parts.find(pp=>pp.id===p.parentId) : null;
+              return (
+                <div key={p.id} style={isChild?{paddingLeft:16,position:"relative"}:{}}>
+                  {isChild && <div style={{position:"absolute",left:8,top:0,bottom:0,width:2,background:"var(--bd)",borderRadius:2}}/>}
+                  <div className={`pc ${st}`} style={isChild?{borderLeftColor:"var(--ac)",borderLeftWidth:3}:{}}>
+                    <div style={{flex:1}}>
+                      {isChild && parentPart && (
+                        <div style={{fontSize:10,color:"var(--t2)",marginBottom:2,display:"flex",alignItems:"center",gap:4}}>
+                          <span style={{color:"var(--ac)"}}>↳</span>
+                          <span>{parentPart.name}{parentPart.hinban?` #${parentPart.hinban}`:""} の中間材</span>
                         </div>
-                      </div>
-                      <div className="psb">
-                        <div className={`psn ${st}`}>{fmtStock(stock)}</div>
-                        <div className="psu">{p.unit}</div>
-                        <div className="psm">最低 {partMinStock(p)}</div>
-                        <span className={`sbadge ${st}`}>{st==="low"?(p.type==="part"?"要加工":"要発注"):st==="warn"?"少なめ":"良好"}</span>
+                      )}
+                      <div className="pn">{p.name} {p.hinban && <span style={{fontSize:"12px",color:"var(--t2)",fontWeight:400}}>#{p.hinban}</span>}</div>
+                      <div className="pv">{p.variant}</div>
+                      <span className="pbadge">{p.cat}</span>
+                      {p.type && <span className="pbadge" style={{background:"var(--s2)",color:"var(--ac)",marginLeft:4}}>{p.type==="material"?"母材":p.type==="part"?"中間材":""}</span>}
+                      <div className="price-avg">加重平均 ¥{fmtD(applyAvgTax(avgPrice))}{avgTaxLabel} / {p.unit}</div>
+                      {p.type!=="part" && (supMap.size>1
+                        ? <div className="price-row">{[...supMap.entries()].map(([s,pr])=><span key={s} style={{marginRight:8}}><i className="fal fa-box" style={{marginRight:3}}/>{s}：¥{fmtD(applyAvgTax(pr))}{avgTaxLabel}</span>)}</div>
+                        : <div className="price-row"><i className="fal fa-box" style={{marginRight:4}}/>{[...supMap.keys()][0]||"—"}</div>
+                      )}
+                      {p.location && <div className="price-row"><i className="fal fa-map-marker-alt" style={{marginRight:4,color:"var(--ac)"}}/>{p.location}</div>}
+                      {p.type==="material" && totalBought>0 && (
+                        <div style={{marginTop:6}}>
+                          <div style={{height:6,background:"var(--bd)",borderRadius:3,overflow:"hidden"}}>
+                            <div style={{height:"100%",width:`${stockPct}%`,background:stockPct>50?"var(--ok)":stockPct>20?"var(--warn)":"var(--low)",borderRadius:3,transition:"width .3s"}}/>
+                          </div>
+                          <div style={{fontSize:10,color:"var(--t2)",marginTop:2}}>{fmtStock(stock)}{p.unit} / {totalBought}{p.unit}（{stockPct}%）</div>
+                        </div>
+                      )}
+                      <div style={{marginTop:6,display:"flex",gap:5,flexWrap:"wrap"}}>
+                        <button style={{background:"none",border:"1px solid var(--bd)",borderRadius:6,color:"var(--t2)",fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openEditPart(p)}><i className="fal fa-pen" style={{marginRight:4}}/>編集</button>
+                        {p.type==="part"
+                          ? <button style={{background:"var(--ok)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openStockCreate(p)}><i className="fal fa-cut" style={{marginRight:4}}/>加工</button>
+                          : <button style={{background:"var(--ac)",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus" style={{marginRight:4}}/>仕入</button>
+                        }
+                        <button style={{background:"none",color:"var(--low)",border:"1px solid var(--low)",borderRadius:6,fontSize:12,cursor:"pointer",padding:"2px 8px",fontFamily:"inherit"}} onClick={()=>{setDf({partId:String(p.id),date:today(),qty:"",reason:""});setEditingDisposalId(null);setModal("disposal");}}><i className="fal fa-trash" style={{marginRight:4}}/>廃棄</button>
                       </div>
                     </div>
+                    <div className="psb">
+                      <div className={`psn ${st}`}>{fmtStock(stock)}</div>
+                      <div className="psu">{p.unit}</div>
+                      <div className="psm">最低 {partMinStock(p)}</div>
+                      <span className={`sbadge ${st}`}>{st==="low"?(p.type==="part"?"要加工":"要発注"):st==="warn"?"少なめ":"良好"}</span>
+                    </div>
                   </div>
-                );
-              });
-            })()}
+                </div>
+              );
+            })}
+
+            {/* ── テーブルビュー ── */}
+            {partView==="table" && (
+              <div style={{overflowX:"auto",margin:"0 -14px",padding:"0 14px 4px"}}>
+                <table className="pt">
+                  <colgroup>
+                    <col style={{width:6}}/>
+                    <col style={{width:88}}/>
+                    <col style={{minWidth:140}}/>
+                    <col style={{width:96}}/>
+                    <col style={{width:48}}/>
+                    <col style={{width:76}}/>
+                    <col style={{width:64}}/>
+                    <col style={{width:64}}/>
+                    <col style={{width:80}}/>
+                    <col style={{width:88}}/>
+                    <col style={{width:76}}/>
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th className="pt-th"/>
+                      <th className="pt-th">カテゴリ</th>
+                      <th className="pt-th">名前</th>
+                      <th className="pt-th">バリアント</th>
+                      <th className="pt-th">単位</th>
+                      <th className="pt-th">品番</th>
+                      <th className="pt-th">最低在庫</th>
+                      <th className="pt-th pt-ro-h">現在庫</th>
+                      <th className="pt-th pt-ro-h">加重平均単価</th>
+                      <th className="pt-th">保管場所</th>
+                      <th className="pt-th"/>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tableRows.map(({p, isChild}, rowIdx)=>{
+                      const {stock,avgPrice}=partStockMap[p.id]||{stock:0,avgPrice:0};
+                      const st=partSt(p.id,stock);
+                      const d=rowDraft[p.id];
+                      const getVal=col=>String(d?.[col]??p[col]??"");
+                      return (
+                        <tr key={p.id} className={`pt-tr${d?" pt-tr-e":""}`}>
+                          <td className={`pt-st ${st}`}/>
+                          {TABLE_EDIT_COLS.map(col=>{
+                            const isAct=editCell?.id===p.id&&editCell?.col===col;
+                            const val=isAct?(d?.[col]??p[col]??""):getVal(col);
+                            return (
+                              <td key={col} className="pt-td" style={col==="name"&&isChild?{paddingLeft:20}:{}} onClick={()=>{if(!isAct) startTableEdit(p.id,col,p);}}>
+                                {isAct ? renderTCI(p.id,col,String(val),rowIdx) : (
+                                  <span className="pt-cv">
+                                    {col==="name"&&isChild&&<span className="pt-cm">↳ </span>}
+                                    {String(val)||<span className="pt-ph">—</span>}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="pt-td pt-ro">{fmtStock(stock)}</td>
+                          <td className="pt-td pt-ro">¥{fmtD(applyAvgTax(avgPrice))}</td>
+                          <td className="pt-td pt-act">
+                            {p.type==="part"
+                              ? <button className="pt-ab" title="加工" style={{color:"var(--ok)"}} onClick={()=>openStockCreate(p)}><i className="fal fa-cut"/></button>
+                              : <button className="pt-ab" title="仕入" style={{color:"var(--ac)"}} onClick={()=>openReplenish(p)}><i className="fal fa-cart-plus"/></button>
+                            }
+                            <button className="pt-ab" title="詳細編集" onClick={()=>openEditPart(p)}><i className="fal fa-pen"/></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {/* 新規追加行 */}
+                    {(()=>{
+                      const id="new";
+                      const d=rowDraft[id];
+                      return (
+                        <tr className={`pt-tr pt-tr-nr${d?" pt-tr-e":""}`}>
+                          <td className="pt-st"/>
+                          {TABLE_EDIT_COLS.map(col=>{
+                            const isAct=editCell?.id===id&&editCell?.col===col;
+                            const defVal=col==="cat"?(partCats[0]||"金具"):col==="unit"?"個":col==="minStock"?"10":"";
+                            const val=d?.[col]??defVal;
+                            return (
+                              <td key={col} className="pt-td pt-td-nr" onClick={()=>{if(!isAct) startTableEdit(id,col,null);}}>
+                                {isAct ? renderTCI(id,col,String(val),tableRows.length) : (
+                                  <span className="pt-cv">
+                                    {col==="name"&&!d?.name
+                                      ? <span className="pt-nr-hint"><i className="fal fa-plus"/>新規追加</span>
+                                      : (String(val)||"")}
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                          <td className="pt-td pt-ro"/>
+                          <td className="pt-td pt-ro"/>
+                          <td className="pt-td"/>
+                        </tr>
+                      );
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
