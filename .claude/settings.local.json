@@ -5,7 +5,10 @@
       "Bash(node -e \"const fs=require\\('fs'\\); const data=JSON.parse\\(fs.readFileSync\\('c:/Users/zipza/Downloads/atelier-stock-2026-04-15 \\(2\\).json','utf8'\\)\\); const parts=data.data?.parts||[]; console.log\\('Total parts:', parts.length\\); parts.forEach\\(\\(p,i\\)=>console.log\\(i, JSON.stringify\\(p\\)\\)\\);\")",
       "Bash(node -e ':*)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(Test-Path \"e:\\\\www\\\\sv3072.xserver.jp\\\\iianbai.com\\\\public_html\\\\atelier-stock\\\\proj_atelierstock\\\\README.md\")",
+      "Bash(python3 *)",
+      "PowerShell(Select-String -Path \"E:\\\\www\\\\sv3072.xserver.jp\\\\iianbai.com\\\\public_html\\\\atelier-stock\\\\proj_atelierstock\\\\src\\\\App.jsx\" -Pattern \"pt-ro\" | Where-Object { $_.Line -notmatch \"className\" } | Select-Object LineNumber, Line)"
     ]
   }
 }

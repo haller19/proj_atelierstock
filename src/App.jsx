@@ -1501,9 +1501,13 @@ export default function App() {
   // ── テーブルビュー インライン編集 ──────────────────────────────────────
   const startTableEdit = (id, col, partData) => {
     if(!rowDraft[id]) {
-      const init = id==="new"
-        ? {cat:partCats[0]||"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", location:""}
-        : {cat:partData.cat||"", name:partData.name||"", variant:partData.variant||"", unit:partData.unit||"", hinban:partData.hinban||"", minStock:String(partData.minStock??partMinStock(partData)), location:partData.location||""};
+      let init;
+      if(id==="new") {
+        init = {cat:partCats[0]||"金具", name:"", variant:"", unit:"個", hinban:"", minStock:"10", location:""};
+      } else {
+        const { stock: curStock, avgPrice: curAvg } = partStockMap[id] || { stock: 0, avgPrice: 0 };
+        init = {cat:partData.cat||"", name:partData.name||"", variant:partData.variant||"", unit:partData.unit||"", hinban:partData.hinban||"", minStock:String(partData.minStock??partMinStock(partData)), location:partData.location||"", currentStock:String(curStock), avgPrice:String(Math.round(applyAvgTax(curAvg)*100)/100)};
+      }
       setRowDraft(d=>({...d, [id]:init}));
     }
     setEditCell({id, col});
@@ -1526,11 +1530,29 @@ export default function App() {
         if(d.location) upd.location = d.location; else if(d.location==="") delete upd.location;
         return upd;
       }));
+      const { stock: curStock, avgPrice: curAvg } = partStockMap[id] || { stock: 0, avgPrice: 0 };
+      if(d.currentStock!=null && d.currentStock!=="") {
+        const newStock = parseFloat(d.currentStock);
+        if(!isNaN(newStock)) { const delta = newStock - curStock; if(Math.abs(delta)>=0.001) setStockAdjustments(a=>[...a,{id:nextId(),partId:id,date:today(),adjustQty:delta,note:"在庫調整"}]); }
+      }
+      const adjPart = parts.find(p=>p.id===id);
+      if(adjPart?.type!=="part" && d.avgPrice!=null && d.avgPrice!=="") {
+        const disp = parseFloat(d.avgPrice);
+        if(!isNaN(disp) && disp>=0) {
+          const stored = globalSettings.avgPriceTax==="incl" ? Math.round(disp/1.1*100)/100 : disp;
+          if(Math.abs(stored-curAvg)>=0.01) setPriceAdjustments(a=>[...a,{id:nextId(),partId:id,date:today(),stock:curStock,avgPrice:stored}]);
+        }
+      }
       setRowDraft(dft=>{const n={...dft}; delete n[id]; return n;});
     }
   };
 
   const handleTableKey = (e, id, col, rowIdx) => {
+    if(!TABLE_EDIT_COLS.includes(col)) {
+      if(e.key==="Tab"||e.key==="Enter"){ e.preventDefault(); commitTableRow(id); setEditCell(null); }
+      else if(e.key==="Escape"){ setRowDraft(d=>{const n={...d}; delete n[id]; return n;}); setEditCell(null); }
+      return;
+    }
     if(e.key==="Tab") {
       e.preventDefault();
       tableTabbing.current = true;
@@ -1589,7 +1611,7 @@ export default function App() {
     const onBl = () => handleTableBlur(id);
     if(col==="cat") return <select ref={editInputRef} className="pt-inp" value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}>{partCats.map(c=><option key={c} value={c}>{c}</option>)}</select>;
     if(col==="location") return <select ref={editInputRef} className="pt-inp" value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}><option value="">未設定</option>{partLocMaster.map(l=><option key={l} value={l}>{l}</option>)}</select>;
-    return <input ref={editInputRef} className="pt-inp" type={col==="minStock"?"number":"text"} value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}/>;
+    return <input ref={editInputRef} className="pt-inp" type={col==="minStock"||col==="currentStock"||col==="avgPrice"?"number":"text"} value={val} onChange={onChange} onKeyDown={onKD} onBlur={onBl}/>;
   };
 
   const deletePart = (id) => {
@@ -2026,9 +2048,9 @@ export default function App() {
                       <th className="pt-th">単位</th>
                       <th className="pt-th">品番</th>
                       <th className="pt-th">最低在庫</th>
-                      <th className="pt-th pt-ro-h">現在庫</th>
-                      <th className="pt-th pt-ro-h">加重平均単価</th>
                       <th className="pt-th">保管場所</th>
+                      <th className="pt-th pt-adj">現在庫</th>
+                      <th className="pt-th pt-adj">加重平均単価</th>
                       <th className="pt-th"/>
                     </tr>
                   </thead>
@@ -2055,8 +2077,24 @@ export default function App() {
                               </td>
                             );
                           })}
-                          <td className="pt-td pt-ro">{fmtStock(stock)}</td>
-                          <td className="pt-td pt-ro">¥{fmtD(applyAvgTax(avgPrice))}</td>
+                          {(()=>{
+                            const isAct=editCell?.id===p.id&&editCell?.col==="currentStock";
+                            return (
+                              <td className={`pt-td${isAct?"":" pt-adj"}`} onClick={()=>{if(!isAct) startTableEdit(p.id,"currentStock",p);}}>
+                                {isAct ? renderTCI(p.id,"currentStock",d?.currentStock??String(stock),rowIdx) : <span className="pt-cv">{fmtStock(stock)}</span>}
+                              </td>
+                            );
+                          })()}
+                          {(()=>{
+                            const isAct=editCell?.id===p.id&&editCell?.col==="avgPrice";
+                            const displayAvg=Math.round(applyAvgTax(avgPrice)*100)/100;
+                            if(p.type==="part") return <td className="pt-td pt-ro">¥{fmtD(applyAvgTax(avgPrice))}</td>;
+                            return (
+                              <td className={`pt-td${isAct?"":" pt-adj"}`} onClick={()=>{if(!isAct) startTableEdit(p.id,"avgPrice",p);}}>
+                                {isAct ? renderTCI(p.id,"avgPrice",d?.avgPrice??String(displayAvg),rowIdx) : <span className="pt-cv">¥{fmtD(displayAvg)}</span>}
+                              </td>
+                            );
+                          })()}
                           <td className="pt-td pt-act">
                             {p.type==="part"
                               ? <button className="pt-ab" title="加工" style={{color:"var(--ok)"}} onClick={()=>openStockCreate(p)}><i className="fal fa-cut"/></button>

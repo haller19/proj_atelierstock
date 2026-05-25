@@ -214,7 +214,7 @@ taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1
 | タブID | 表示名 | アイコン | 内容 |
 |--------|--------|---------|------|
 | `dashboard` | HOME | `fal fa-home` | 今月KPI（クリックで売上タブへ遷移）・チャネル別売上棒グラフ・在庫アラート＋在庫補充/在庫作成ボタン |
-| `parts` | 部品在庫 | `fal fa-boxes` | 部品一覧（加重平均単価・仕入先・在庫ステータス）、母材の残量バー、母材→中間材の親子インデント表示。カード内「仕入」「廃棄」ボタン。タイトル右に「履歴参照」ボタン。FABで部品追加/仕入のデュアルタブモーダル |
+| `parts` | 部品在庫 | `fal fa-boxes` | 部品一覧（加重平均単価・仕入先・在庫ステータス）、母材の残量バー、母材→中間材の親子インデント表示。カード内「仕入」「廃棄」ボタン。タイトル右に「履歴参照」ボタン。FABで部品追加/仕入のデュアルタブモーダル。**カードビュー/テーブルビュー切り替え対応**（テーブルビューはインライン編集・Tab移動・最終行から新規部品追加が可能） |
 | `prodstock` | 作品 | `fal fa-gem` | カテゴリフィルタ＋ソート、サブタブ「在庫」「レシピ・原価」、レシピ編集・削除、＋で制作記録またはレシピ登録 |
 | `records` | 素材加工記録 | `fal fa-cut` | 加工記録一覧のみ（サブタブなし）。母材ごとにグループ表示。FABで加工記録登録 |
 | `consign` | 委託 | `fal fa-store` | 委託先ごとの記録履歴・商品別在庫サマリ、委託記録の編集・削除、売上計上ボタン・委託終了ボタン（返品/廃棄ロス選択） |
@@ -312,7 +312,10 @@ taxMult = globalSettings.avgPriceTax==="incl" ? 1.1 : 1
 - **ソート対象は母材・通常のみ**。中間材はソートから除外し、`filteredParts` は `[...topLevel, ...orphans]` の順で返す
 - レンダリング時に母材の子中間材を **同じ基準・同じ方向でソートして直後に挿入**
 
-**レンダリングロジック（IIFE内）**
+**レンダリングロジック（`tableRows` useMemo）**
+
+カードビューとテーブルビューの両方で共用する `tableRows` useMemo（`{p, isChild}[]`）に抽出。
+
 ```js
 // filteredParts は母材+通常（ソート済み）+ 孤立中間材 の順
 filteredParts.forEach(p => {
@@ -328,6 +331,82 @@ filteredParts.forEach(p => {
   }
 });
 ```
+
+### 部品テーブルビュー（インライン編集）
+
+部品在庫タブはカードビュー（`partView="card"`）とテーブルビュー（`partView="table"`）を切り替えられる。テーブルビューはスプレッドシートライクなインライン編集に対応。
+
+**state・定数**
+
+| 名前 | 型 | 説明 |
+|------|---|------|
+| `TABLE_EDIT_COLS` | `string[]`（モジュール定数） | 編集可能列のキー順: `["cat","name","variant","unit","hinban","minStock","location"]` |
+| `partView` | `"card"` \| `"table"` | ビュー切替。切替時に `editCell` / `rowDraft` をリセット |
+| `editCell` | `{id:number\|"new", col:string}` \| `null` | 現在アクティブなセル。`id:"new"` は新規追加行 |
+| `rowDraft` | `{[id]: editFields}` | 編集中の行データ（未コミット）。`id` は部品IDまたは `"new"` |
+| `editInputRef` | `useRef` | アクティブなセルの input/select にフォーカスするref。`editCell` 変化時に `useEffect` で自動フォーカス |
+| `tableTabbing` | `useRef(false)` | Tab キー操作中フラグ。Tab の `onKeyDown` → `onBlur` 二重コミットを防ぐ |
+
+**テーブル列構成（左→右）**
+
+| 列キー | ヘッダー | 入力種別 | 備考 |
+|--------|---------|---------|------|
+| -      | （空）   | 読取専用 | 在庫ステータスインジケーター（左4px色帯） |
+| `cat` | カテゴリ | `<select>` | `partCats` から選択 |
+| `name` | 名前 | テキスト | 中間材は20px左インデント |
+| `variant` | バリアント | テキスト | |
+| `unit` | 単位 | テキスト | |
+| `hinban` | 品番 | テキスト | |
+| `minStock` | 最低在庫 | 数値 | |
+| `location` | 保管場所 | `<select>` | `partLocMaster` から選択 |
+| - | 現在庫 | 読取専用 | `fmtStock(stock)` |
+| - | 加重平均単価 | 読取専用 | `¥{fmtD(applyAvgTax(avgPrice))}` |
+| - | （空） | - | 仕入/加工・詳細編集ボタン |
+
+**キーボード操作**
+
+| キー | 動作 |
+|-----|------|
+| Tab | コミットして右のセルへ。最終列なら次行先頭へ。最終行最終列なら新規追加行へ |
+| Shift+Tab | コミットして左のセルへ。先頭列なら前行の最終列へ |
+| Enter | コミットして `editCell` をクリア |
+| Escape | 変更を破棄して `editCell` をクリア |
+| blur（フォーカス離脱） | `tableTabbing` が false のときコミット（Tab 移動中はスキップ） |
+
+**新規追加行**
+
+- `id="new"` の特殊行。表の最終行に常に表示
+- 名前セルに「＋ 新規追加」プレースホルダーを表示
+- Tab で最終行最終列から遷移、またはセルをクリックして編集開始
+- コミット時に `commitTableRow("new")` が `nextId()` で新しい部品IDを生成し `parts` に追加
+- カテゴリが `partCats` にない場合は自動的に `partCats` に追加
+- コミット後は `editCell` を `{id:newId, col:"cat"}` に移動し連続入力を維持
+
+**関連関数**
+
+| 関数 | 説明 |
+|------|------|
+| `startTableEdit(id, col, partData)` | `rowDraft[id]` を初期化し `editCell` をセット |
+| `commitTableRow(id)` | `rowDraft[id]` を `parts` にコミット（`"new"` なら追加） |
+| `handleTableKey(e, id, col, rowIdx)` | Tab / Enter / Escape のキーハンドラ |
+| `handleTableBlur(id)` | blur 時コミット（`tableTabbing` フラグで Tab 移動中はスキップ） |
+| `renderTCI(id, col, val, rowIdx)` | 列に応じた `<input>` または `<select>` を返す |
+
+**CSSクラス一覧（`App.css`）**
+
+| クラス | 用途 |
+|------|------|
+| `.pt-vbtn` / `.pt-vbtn.on` | ビュー切替ボタン（カード/テーブル） |
+| `.pt` | テーブル本体（`border-collapse:collapse`） |
+| `.pt-th` / `.pt-ro-h` | ヘッダーセル / 読取専用ヘッダー（Primary色） |
+| `.pt-tr` / `.pt-tr-e` / `.pt-tr-nr` | 行 / 編集中行 / 新規追加行 |
+| `.pt-st` / `.pt-st.low` / `.pt-st.warn` / `.pt-st.ok` | 在庫ステータス帯 |
+| `.pt-td` / `.pt-td-nr` / `.pt-ro` / `.pt-act` | セル / 新規追加セル / 読取専用セル / アクションセル |
+| `.pt-cv` / `.pt-ph` / `.pt-cm` / `.pt-nr-hint` | セル内テキスト / プレースホルダー / 中間材マーク / 新規ヒント |
+| `.pt-inp` | 編集中 input/select（2px Primary ボーダー） |
+| `.pt-ab` | アクションボタン |
+
+---
 
 ### 部品カテゴリ
 
@@ -403,6 +482,9 @@ CH_PALETTE = ["#e8847a","#7ab5e8",...]  // チャネル追加時の自動カラ�
 // type:"material" → 母材
 // type:"part"     → 中間材（parentId に親の母材IDを設定可能）
 // type:undefined  → 通常の部品
+
+// 部品テーブルビューの編集可能列（この順序でTab移動する）
+TABLE_EDIT_COLS = ["cat","name","variant","unit","hinban","minStock","location"]
 
 // 部品の最低在庫数（初期10件分のフォールバック用ハードコード）
 MIN_STOCK = { 1:50, 2:50, 3:100, 4:30, 5:5, 6:10, 7:80, 8:20, 9:100, 10:50 }
@@ -483,6 +565,7 @@ npm run preview  # ビルド結果をローカルで確認
 
 | 日付 | 内容 |
 |------|------|
+| 2026-05-22 | 部品在庫タブにテーブルビュー追加。インライン編集・Tab/Shift+Tab移動・最終行からの新規部品追加に対応。`partView` state でカード/テーブルを切り替え。`tableRows` useMemo をカード/テーブル共用に抽出 |
 | 2026-05-11 | 全体設定（`as_global_settings`）追加。加重平均単価の税込み/税抜き切替を管理設定→全体設定ページから操作可能に。表示・原価計算・純利益計算すべてに反映 |
 | 2026-05-11 | 受注売上（`saleType:"order"`）に部品選択機能追加。選択した部品を在庫から差し引き、部品原価を純利益計算に反映。`partUsages` に `saleId` フィールドと `type:"order"` を追加 |
 | 2026-05-11 | Google Drive ヘッダー表示変更：プロフィール写真・名前アバターを廃止し、ステータスドット＋テキストに変更 |
