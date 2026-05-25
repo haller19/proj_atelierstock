@@ -520,6 +520,8 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 .pt-td-nr{color:var(--md-osv);}
 .pt-ro{cursor:default;color:var(--md-p);font-weight:600;font-size:11px;background:var(--md-sc1);}
 .pt-ro:hover{border-right-color:transparent;}
+.pt-adj{cursor:pointer;color:var(--md-p);font-weight:600;font-size:11px;background:var(--md-sc1);}
+.pt-adj:hover{background:var(--md-pc);border-right-color:var(--md-p);}
 .pt-act{padding:4px 6px;white-space:nowrap;cursor:default;}
 .pt-act:hover{border-right-color:transparent;}
 .pt-cv{display:block;line-height:1.3;word-break:break-all;}
