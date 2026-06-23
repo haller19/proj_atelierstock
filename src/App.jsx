@@ -87,9 +87,9 @@ const CSV_COLS = {
   made:          { label:"制作記録",        cols:["id","productId","date","qty","note"],                                                                       headers:["ID","作品ID","日付","数量","メモ"],                                                                    jsonCols:[] },
   consignees:    { label:"委託先マスター",  cols:["id","name","address","memo"],                                                                               headers:["ID","名前","住所","メモ"],                                                                             jsonCols:[] },
   consignRecords:{ label:"委託記録",        cols:["id","productId","consigneeId","date","type","qty","salePrice","feeRate","memo"],                            headers:["ID","作品ID","委託先ID","日付","種別","数量","販売価格","手数料率","メモ"],                              jsonCols:[] },
-  sales:         { label:"売上記録",        cols:["id","productId","orderName","saleType","date","channel","qty","price","shippingActual","memo","feeRate","consignRecordId"], headers:["ID","作品ID","オーダー品名","種別","日付","チャネル","数量","価格","実送料","メモ","手数料率","委託記録ID"], jsonCols:[],
-                   exportCols:   ["id","productId","orderName","saleType","productName","date","channel","qty","price","shippingActual","feeRate","channelFee","totalCost","profit","profitRate","memo","consignMemo"],
-                   exportHeaders:["ID","作品ID","オーダー品名","種別","作品名","日付","チャネル","数量","価格","実送料","手数料率(%)","手数料額","原価","純利益","利益率(%)","メモ","委託記録メモ"] },
+  sales:         { label:"売上記録",        cols:["id","productId","orderName","saleType","date","channel","qty","price","purchaseCost","shippingActual","memo","feeRate","consignRecordId"], headers:["ID","作品ID","オーダー品名","種別","日付","チャネル","数量","価格","仕入値","実送料","メモ","手数料率","委託記録ID"], jsonCols:[],
+                   exportCols:   ["id","productId","orderName","saleType","productName","date","channel","qty","price","purchaseCost","shippingActual","feeRate","channelFee","totalCost","profit","profitRate","memo","consignMemo"],
+                   exportHeaders:["ID","作品ID","オーダー品名","種別","作品名","日付","チャネル","数量","価格","仕入値","実送料","手数料率(%)","手数料額","原価","純利益","利益率(%)","メモ","委託記録メモ"] },
   channels:      { label:"チャネルマスター",cols:["id","name","feeRate","color"],                                                                              headers:["ID","名前","手数料率","カラー"],                                                                       jsonCols:[] },
   partUsages:    { label:"部品使用記録",    cols:["id","madeId","saleId","partId","date","qty","type"],                                                        headers:["ID","制作記録ID","売上記録ID","部品ID","日付","数量","タイプ"],                                          jsonCols:[] },
 };
@@ -169,7 +169,7 @@ function csvRowsToObjects(rows, colDef) {
         // ="1776750000000" 形式（Excel指数表記対策）を剥がす
         const stripped = typeof val === "string" ? val.replace(/^="(.*)"$/, "$1") : val;
         val = stripped === "" ? undefined : Number(stripped);
-      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock" || col === "currentStock" || col === "avgPrice") {
+      } else if (col === "qty" || col === "unitPrice" || col === "totalPrice" || col === "inputQty" || col === "lossQty" || col === "shippingCost" || col === "laborCost" || col === "price" || col === "purchaseCost" || col === "shippingActual" || col === "feeRate" || col === "salePrice" || col === "minStock" || col === "currentStock" || col === "avgPrice") {
         val = val === "" ? undefined : Number(val);
       }
       if (val !== undefined && val !== "") obj[col] = val;
@@ -364,16 +364,21 @@ function calcSaleProfit(sale, productCostMap, chFeeMap={}, partsCost=0) {
   const costInfo = sale.saleType!=="order" ? productCostMap[sale.productId] : null;
   const cost = costInfo?.total||0;
   const estimatedShipping = costInfo?.shippingCost||0;
-  const revenue = sale.price*sale.qty;
+  const qty = Number(sale.qty)||0;
+  const price = Number(sale.price)||0;
+  const revenue = price*qty;
   const feeRate = sale.feeRate!=null ? sale.feeRate : (chFeeMap[sale.channel]??0);
-  const channelFee = Math.round(sale.price*(feeRate/100))*sale.qty;
+  const channelFee = Math.round(price*(feeRate/100))*qty;
   // 実送料が入力済みの場合のみ差額を計上。未入力(0)は想定送料をそのまま使用
-  const shippingAdj = sale.shippingActual > 0
-    ? ((sale.shippingActual - estimatedShipping) * sale.qty)
+  const shippingActual = Number(sale.shippingActual)||0;
+  const shippingAdj = shippingActual > 0
+    ? ((shippingActual - estimatedShipping) * qty)
     : 0;
-  const totalCostAmt = sale.saleType==="order" ? partsCost : cost*sale.qty;
+  const orderPartsCost = sale.saleType==="order" ? partsCost : 0;
+  const orderPurchaseCost = sale.saleType==="order" ? (Number(sale.purchaseCost)||0)*qty : 0;
+  const totalCostAmt = sale.saleType==="order" ? orderPartsCost+orderPurchaseCost : cost*qty;
   const profit = revenue - totalCostAmt - channelFee - shippingAdj;
-  return { revenue, totalCost:totalCostAmt, channelFee, shippingAdj, estimatedShipping, profit, profitRate:pct(profit,revenue), feeRate };
+  return { revenue, totalCost:totalCostAmt, partsCost:orderPartsCost, orderPurchaseCost, channelFee, shippingAdj, estimatedShipping, profit, profitRate:pct(profit,revenue), feeRate };
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -469,7 +474,7 @@ export default function App() {
   const [df,  setDf]  = useState({ partId:"",   date:today(),   qty:"",        reason:"" });
   const [editingPurchaseId,  setEditingPurchaseId]  = useState(null);
   const [editingDisposalId,  setEditingDisposalId]  = useState(null);
-  const SF_ITEM_INIT = { saleType:"product", productId:"", orderName:"", qty:"1", price:"", shippingActual:"", orderParts:[] };
+  const SF_ITEM_INIT = { saleType:"product", productId:"", orderName:"", qty:"1", price:"", purchaseCost:"", shippingActual:"", orderParts:[] };
   const [sf,  setSf]  = useState({ date:today(), channel:"Minne", memo:"", items:[{...SF_ITEM_INIT}] });
   const MF_INIT = { productId:"", date:today(), qty:"1", note:"", checkedParts:{}, extraParts:[], lossParts:[] };
   const [mf,  setMf]  = useState(MF_INIT);
@@ -624,6 +629,15 @@ export default function App() {
       return { ym, label:`${d.getMonth()+1}月`, yearLabel: isJan?String(d.getFullYear()).slice(2):null, rev, profit, isCurrent: ym===THIS_MONTH };
     });
   },[sales,productCostMap,chFeeMap,orderSaleCostMap]);
+  const annualSummary = useMemo(()=>{
+    const first = monthly12[0]?.ym || THIS_MONTH;
+    const last = monthly12[monthly12.length-1]?.ym || THIS_MONTH;
+    return {
+      range: `${first.replace("-","/")}〜${last.replace("-","/")}`,
+      rev: monthly12.reduce((a,m)=>a+m.rev,0),
+      profit: monthly12.reduce((a,m)=>a+m.profit,0),
+    };
+  },[monthly12, THIS_MONTH]);
   const byChannel   = channels
     .map(ch=>({ ch:ch.name, rev:ms.filter(s=>s.channel===ch.name).reduce((a,s)=>a+s.price*s.qty,0) }))
     .filter(b=>b.rev>0);
@@ -672,16 +686,21 @@ export default function App() {
       if(item.saleType!=="order"&&!item.productId) return null;
       const costInfo = item.saleType!=="order" ? productCostMap[+item.productId] : null;
       const estimatedShipping = costInfo?.shippingCost||0;
-      const rev  = +item.price * +item.qty;
-      const fee  = Math.round(+item.price*(feeRate/100))*(+item.qty);
+      const qty = +item.qty;
+      const rev  = +item.price * qty;
+      const fee  = Math.round(+item.price*(feeRate/100))*qty;
       const shippingAdj = +item.shippingActual > 0
-        ? ((+item.shippingActual - estimatedShipping) * (+item.qty))
+        ? ((+item.shippingActual - estimatedShipping) * qty)
         : 0;
-      const cost = item.saleType==="order"
+      const orderPartsCost = item.saleType==="order"
         ? (item.orderParts||[]).reduce((s,op)=>s+(partStockMap[+op.partId]?.avgPrice||0)*taxMult*(+op.qty||0),0)
-        : (costInfo?.total||0)*(+item.qty);
+        : 0;
+      const orderPurchaseCost = item.saleType==="order" ? (+item.purchaseCost||0)*qty : 0;
+      const cost = item.saleType==="order"
+        ? orderPartsCost+orderPurchaseCost
+        : (costInfo?.total||0)*qty;
       const profit = rev - cost - fee - shippingAdj;
-      return { rev, cost, fee, shippingAdj, estimatedShipping, profit, feeRate };
+      return { rev, cost, partsCost:orderPartsCost, orderPurchaseCost, fee, shippingAdj, estimatedShipping, profit, feeRate };
     });
   },[sf,productCostMap,chFeeMap,partStockMap,globalSettings]);
 
@@ -1213,7 +1232,7 @@ export default function App() {
         saleType: s.saleType||"product",
         productId: s.saleType!=="order" ? String(s.productId||"") : "",
         orderName: s.saleType==="order" ? (s.orderName||"") : "",
-        qty: String(s.qty), price: String(s.price), shippingActual: String(s.shippingActual||""),
+        qty: String(s.qty), price: String(s.price), purchaseCost: s.saleType==="order" ? String(s.purchaseCost||"") : "", shippingActual: String(s.shippingActual||""),
         orderParts,
       }],
     });
@@ -1223,48 +1242,45 @@ export default function App() {
 
   const addSale = ()=>{
     if(!sf.date) return;
-    if(editingSaleId) {
-      const item = sf.items[0];
-      if(!item.price||!item.qty) return;
-      if(item.saleType==="order"&&!item.orderName) return;
-      if(item.saleType!=="order"&&!item.productId) return;
-      const base = {
+    const validItems = sf.items.filter(item=>
+      item.price&&item.qty&&(item.saleType==="order"?item.orderName:item.productId)
+    );
+    const buildSaleRecord = (item, id) => {
+      const record = {
         saleType: item.saleType==="order"?"order":undefined,
         productId: item.saleType!=="order"?+item.productId:undefined,
         orderName: item.saleType==="order"?item.orderName:undefined,
-        date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, shippingActual:+item.shippingActual||0, memo:sf.memo,
+        date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, purchaseCost:item.saleType==="order"?+item.purchaseCost||0:undefined, shippingActual:+item.shippingActual||0, memo:sf.memo,
       };
-      setSales(ss=>ss.map(s=>s.id===editingSaleId?{...s,...base}:s));
+      return id == null ? record : { id, ...record };
+    };
+    const buildOrderUsages = (item, saleId) =>
+      item.saleType==="order"
+        ? (item.orderParts||[])
+          .filter(op=>op.partId&&+op.qty>0)
+          .map(op=>({id:nextId(),saleId,partId:+op.partId,date:sf.date,qty:+op.qty,type:"order"}))
+        : [];
+
+    if(editingSaleId) {
+      if(validItems.length===0) return;
+      const editingSale = sales.find(s=>s.id===editingSaleId);
+      const extraItems = editingSale?.consignRecordId ? [] : validItems.slice(1);
+      const base = buildSaleRecord(validItems[0]);
+      const newRecords = extraItems.map(item=>buildSaleRecord(item,nextId()));
+      setSales(ss=>[...ss.map(s=>s.id===editingSaleId?{...s,...base}:s), ...newRecords]);
       setPartUsages(us=>{
         const kept = us.filter(u=>u.saleId!==editingSaleId);
-        if(item.saleType!=="order") return kept;
-        const newUsages = (item.orderParts||[])
-          .filter(op=>op.partId&&+op.qty>0)
-          .map(op=>({id:nextId(),saleId:editingSaleId,partId:+op.partId,date:sf.date,qty:+op.qty,type:"order"}));
+        const newUsages = [
+          ...buildOrderUsages(validItems[0], editingSaleId),
+          ...extraItems.flatMap((item,i)=>buildOrderUsages(item,newRecords[i].id)),
+        ];
         return [...kept,...newUsages];
       });
     } else {
-      const validItems = sf.items.filter(item=>
-        item.price&&item.qty&&(item.saleType==="order"?item.orderName:item.productId)
-      );
       if(validItems.length===0) return;
-      const newRecords = validItems.map(item=>({
-        id:nextId(),
-        saleType: item.saleType==="order"?"order":undefined,
-        productId: item.saleType!=="order"?+item.productId:undefined,
-        orderName: item.saleType==="order"?item.orderName:undefined,
-        date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, shippingActual:+item.shippingActual||0, memo:sf.memo,
-      }));
+      const newRecords = validItems.map(item=>buildSaleRecord(item,nextId()));
       setSales(p=>[...p,...newRecords]);
-      const newUsages = [];
-      validItems.forEach((item,i)=>{
-        if(item.saleType==="order") {
-          const saleId = newRecords[i].id;
-          (item.orderParts||[]).filter(op=>op.partId&&+op.qty>0).forEach(op=>{
-            newUsages.push({id:nextId(),saleId,partId:+op.partId,date:sf.date,qty:+op.qty,type:"order"});
-          });
-        }
-      });
+      const newUsages = validItems.flatMap((item,i)=>buildOrderUsages(item,newRecords[i].id));
       if(newUsages.length>0) setPartUsages(us=>[...us,...newUsages]);
     }
     closeSaleModal();
@@ -1856,6 +1872,16 @@ export default function App() {
               ))}
             </div>
             <div className="kpi-grid">
+              <div className="kpi" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
+                <div className="kl">1年間の累計売上</div>
+                <div className="kv">¥{fmt(annualSummary.rev)}</div>
+                <div className="ks">{annualSummary.range}</div>
+              </div>
+              <div className="kpi" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
+                <div className="kl">1年間の累計純利益</div>
+                <div className="kv" style={{color:annualSummary.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(annualSummary.profit)}</div>
+                <div className="ks">手数料・送料差引後</div>
+              </div>
               <div className="kpi ac" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
                 <div className="kl">今月の純利益</div>
                 <div className="kv">¥{fmt(totalProfit)}</div>
@@ -2521,7 +2547,16 @@ export default function App() {
                       <div className="sd-row"><span className="sd-lbl">販売価格</span><span className="sd-val">¥{fmt(s.price)} × {s.qty}点</span></div>
                       <div className="sd-row"><span className="sd-lbl">売上合計</span><span className="sd-val">¥{fmt(calc.revenue)}</span></div>
                       <div className="sd-div"/>
-                      <div className="sd-row"><span className="sd-lbl">原価</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.totalCost)}</span></div>
+                      {s.saleType==="order" ? (
+                        <>
+                          {calc.partsCost>0&&<div className="sd-row"><span className="sd-lbl">部品原価</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.partsCost)}</span></div>}
+                          {calc.orderPurchaseCost>0&&<div className="sd-row"><span className="sd-lbl">仕入値{s.qty>1?`（¥${fmt(s.purchaseCost||0)}×${s.qty}点）`:""}</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.orderPurchaseCost)}</span></div>}
+                          {calc.partsCost>0&&calc.orderPurchaseCost>0&&<div className="sd-row"><span className="sd-lbl">原価合計</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.totalCost)}</span></div>}
+                          {calc.totalCost===0&&<div className="sd-row"><span className="sd-lbl">原価</span><span className="sd-val" style={{color:"var(--low)"}}>−¥0</span></div>}
+                        </>
+                      ) : (
+                        <div className="sd-row"><span className="sd-lbl">原価</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.totalCost)}</span></div>
+                      )}
                       <div className="sd-row"><span className="sd-lbl">チャネル手数料（{calc.feeRate}%）</span><span className="sd-val" style={{color:"var(--low)"}}>−¥{fmt(calc.channelFee)}</span></div>
                       {s.shippingActual>0&&calc.shippingAdj!==0&&(
                         <div className="sd-row">
@@ -3116,7 +3151,7 @@ export default function App() {
                       <div style={{display:"flex",gap:6,marginBottom:8}}>
                         {["product","order"].map(t=>(
                           <button key={t} className={`chip${item.saleType===t?" on":""}`} style={{flex:1}}
-                            onClick={()=>updItem({saleType:t,productId:"",orderName:""})}>
+                            onClick={()=>updItem({saleType:t,productId:"",orderName:"",purchaseCost:"",orderParts:[]})}>
                             {t==="product"?"作品":"オーダー品"}
                           </button>
                         ))}
@@ -3166,18 +3201,24 @@ export default function App() {
                         </div>
                       )
                     )}
-                    <div className="fr3">
+                    <div className="fr3" style={{gridTemplateColumns:item.saleType==="order"?"repeat(auto-fit,minmax(112px,1fr))":undefined}}>
                       <div className="fr"><label className="fl">販売価格 *</label><input className="fi" type="number" placeholder="0" value={item.price} onChange={e=>updItem({price:e.target.value})}/></div>
                       <div className="fr"><label className="fl">数量 *</label><input className="fi" type="number" placeholder="1" value={item.qty} onChange={e=>updItem({qty:e.target.value})}/></div>
+                      {item.saleType==="order"&&<div className="fr"><label className="fl">仕入値</label><input className="fi" type="number" placeholder="0" value={item.purchaseCost} onChange={e=>updItem({purchaseCost:e.target.value})}/></div>}
                       <div className="fr"><label className="fl">送料実費</label><input className="fi" type="number" placeholder="0" value={item.shippingActual} onChange={e=>updItem({shippingActual:e.target.value})}/></div>
                     </div>
                     {prev && (
                       <div className="preview-box" style={{marginTop:8}}>
                         <div className="prev-row"><span className="prev-lbl">売上合計</span><span className="prev-val">¥{fmt(prev.rev)}</span></div>
-                        {item.saleType!=="order"
-                          ? <div className="prev-row"><span className="prev-lbl">原価（想定送料¥{fmt(prev.estimatedShipping)}込）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>
-                          : prev.cost>0&&<div className="prev-row"><span className="prev-lbl">部品原価</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>
-                        }
+                        {item.saleType!=="order" ? (
+                          <div className="prev-row"><span className="prev-lbl">原価（想定送料¥{fmt(prev.estimatedShipping)}込）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>
+                        ) : (
+                          <>
+                            {prev.partsCost>0&&<div className="prev-row"><span className="prev-lbl">部品原価</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.partsCost)}</span></div>}
+                            {prev.orderPurchaseCost>0&&<div className="prev-row"><span className="prev-lbl">仕入値{+item.qty>1?`（¥${fmt(+item.purchaseCost||0)}×${item.qty}点）`:""}</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.orderPurchaseCost)}</span></div>}
+                            {prev.partsCost>0&&prev.orderPurchaseCost>0&&<div className="prev-row"><span className="prev-lbl">原価合計</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.cost)}</span></div>}
+                          </>
+                        )}
                         <div className="prev-row"><span className="prev-lbl">手数料（{prev.feeRate}%）</span><span className="prev-val" style={{color:"var(--low)"}}>−¥{fmt(prev.fee)}</span></div>
                         {+item.shippingActual>0&&prev.shippingAdj!==0&&(
                           <div className="prev-row">
@@ -3198,8 +3239,8 @@ export default function App() {
                 );
               })}
 
-              {/* 商品を追加ボタン（新規のみ） */}
-              {!editingSaleId && (
+              {/* 商品を追加ボタン（新規・通常編集） */}
+              {!(editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId) && (
                 <button style={{width:"100%",padding:"8px 0",border:"1px dashed var(--ac)",borderRadius:10,background:"none",color:"var(--ac)",fontSize:13,cursor:"pointer",fontFamily:"inherit",marginBottom:8}}
                   onClick={()=>setSf(f=>({...f,items:[...f.items,{...SF_ITEM_INIT}]}))}>
                   <i className="fas fa-plus" style={{marginRight:5}}/>商品を追加

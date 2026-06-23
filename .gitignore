@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+fontawesome-pro-5.15.4-web
+public/fontawesome/js/*
+public/fontawesome/scss/*
+public/fontawesome/metadata/*
+public/fontawesome/sprites/*
+public/fontawesome/sprites-full/*
+public/fontawesome/svgs/*
+public/fontawesome/svgs-full/*
+public/fontawesome/webfonts/*
+public/fontawesome/less/*
+public/fontawesome/attribution.js
+public/fontawesome/LICENSE.txt
