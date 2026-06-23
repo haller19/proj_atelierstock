@@ -27,23 +27,86 @@ jobs:
         env:
           VITE_DRIVE_CLIENT_ID: ${{ secrets.VITE_DRIVE_CLIENT_ID }}
 
-      - name: Setup SSH
+      - name: Validate deployment secrets
         shell: bash
+        env:
+          XSERVER_HOST: ${{ secrets.XSERVER_HOST }}
+          XSERVER_USER: ${{ secrets.XSERVER_USER }}
+          XSERVER_KEY_B64: ${{ secrets.XSERVER_KEY_B64 }}
+          XSERVER_REMOTE_PATH: ${{ secrets.XSERVER_REMOTE_PATH }}
         run: |
+          set -euo pipefail
+          missing=0
+          for name in XSERVER_HOST XSERVER_USER XSERVER_KEY_B64 XSERVER_REMOTE_PATH; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::$name secret is empty or not configured"
+              missing=1
+            else
+              echo "$name is configured"
+            fi
+          done
+          exit "$missing"
+
+      - name: Setup SSH key
+        shell: bash
+        env:
+          XSERVER_KEY_B64: ${{ secrets.XSERVER_KEY_B64 }}
+        run: |
+          set -euo pipefail
           mkdir -p ~/.ssh
-          echo "${{ secrets.XSERVER_KEY_B64 }}" | base64 -d > ~/.ssh/id_rsa
+          if ! printf '%s' "$XSERVER_KEY_B64" | base64 -d > ~/.ssh/id_rsa; then
+            echo "::error::XSERVER_KEY_B64 is not valid base64"
+            exit 1
+          fi
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -p 10022 ${{ secrets.XSERVER_HOST }} >> ~/.ssh/known_hosts
+          if ! ssh-keygen -y -f ~/.ssh/id_rsa > ~/.ssh/id_rsa.pub; then
+            echo "::error::Decoded XSERVER_KEY_B64 is not a valid SSH private key"
+            exit 1
+          fi
+          ssh-keygen -lf ~/.ssh/id_rsa.pub
+
+      - name: Diagnose SSH host
+        shell: bash
+        env:
+          XSERVER_HOST: ${{ secrets.XSERVER_HOST }}
+        run: |
+          set -euo pipefail
+          if ! getent ahosts "$XSERVER_HOST" >/tmp/xserver_hosts; then
+            echo "::error::DNS lookup failed for XSERVER_HOST"
+            exit 1
+          fi
+          echo "DNS lookup succeeded"
+          if ! timeout 10 bash -c 'cat < /dev/null > /dev/tcp/${XSERVER_HOST}/10022'; then
+            echo "::error::TCP connection to XSERVER_HOST:10022 failed"
+            exit 1
+          fi
+          echo "TCP connection to port 10022 succeeded"
+          if ! timeout 15 ssh-keyscan -T 10 -p 10022 "$XSERVER_HOST" > ~/.ssh/known_hosts; then
+            echo "::error::ssh-keyscan failed for XSERVER_HOST:10022"
+            exit 1
+          fi
+          if [[ ! -s ~/.ssh/known_hosts ]]; then
+            echo "::error::ssh-keyscan returned no host keys"
+            exit 1
+          fi
+          ssh-keygen -lf ~/.ssh/known_hosts | awk '{print "Host key fingerprint:", $2, $4}'
 
       - name: Test SSH connection
         shell: bash
+        env:
+          XSERVER_HOST: ${{ secrets.XSERVER_HOST }}
+          XSERVER_USER: ${{ secrets.XSERVER_USER }}
         run: |
-          ssh -p 10022 -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes ${{ secrets.XSERVER_USER }}@${{ secrets.XSERVER_HOST }} exit
+          ssh -p 10022 -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o BatchMode=yes "$XSERVER_USER@$XSERVER_HOST" exit
 
       - name: Deploy via rsync
         shell: bash
+        env:
+          XSERVER_HOST: ${{ secrets.XSERVER_HOST }}
+          XSERVER_USER: ${{ secrets.XSERVER_USER }}
+          XSERVER_REMOTE_PATH: ${{ secrets.XSERVER_REMOTE_PATH }}
         run: |
           rsync -avz \
             -e "ssh -p 10022 -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes" \
             dist/ \
-            ${{ secrets.XSERVER_USER }}@${{ secrets.XSERVER_HOST }}:${{ secrets.XSERVER_REMOTE_PATH }}/
+            "${XSERVER_USER}@${XSERVER_HOST}:${XSERVER_REMOTE_PATH}/"
