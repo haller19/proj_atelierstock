@@ -1882,15 +1882,15 @@ export default function App() {
                 <div className="kv" style={{color:annualSummary.profit>=0?"var(--ok)":"var(--low)"}}>¥{fmt(annualSummary.profit)}</div>
                 <div className="ks">手数料・送料差引後</div>
               </div>
-              <div className="kpi ac" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
-                <div className="kl">今月の純利益</div>
-                <div className="kv">¥{fmt(totalProfit)}</div>
-                <div className="ks">手数料・送料差引後</div>
-              </div>
               <div className="kpi" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
                 <div className="kl">今月の売上</div>
                 <div className="kv">¥{fmt(totalRev)}</div>
                 <div className="ks">{ms.length}件</div>
+              </div>
+              <div className="kpi ac" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
+                <div className="kl">今月の純利益</div>
+                <div className="kv">¥{fmt(totalProfit)}</div>
+                <div className="ks">手数料・送料差引後</div>
               </div>
               <div className="kpi" style={{cursor:"pointer"}} onClick={()=>{setTab("sales");setSelectedYear(THIS_MONTH.slice(0,4));setSelectedChannel(null);}}>
                 <div className="kl">利益率</div>
