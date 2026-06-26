@@ -1856,14 +1856,14 @@ export default function App() {
               </div>
             )}
             {/* クイックアクションボタン */}
-            <div class="sc-quickaction" style={{display:"flex",gap:6,marginBottom:13,flexWrap:"wrap"}}>
+            <div className="sc-quickaction" style={{display:"flex",gap:6,marginBottom:13,flexWrap:"wrap"}}>
               {[
                 {label:"仕入記録",  icon:"fal fa-cart-plus",   action:()=>setModal("purchase")},
                 {label:"加工記録",  icon:"fal fa-cut",    action:()=>setModal("processing")},
                 {label:"作品記録",  icon:"fal fa-gem",         action:()=>setModal("made")},
                 {label:"売上記録",  icon:"fal fa-chart-line",  action:()=>setModal("sale")},
               ].map(b=>(
-                <button class="btn-quickaction" key={b.label}
+                <button className="btn-quickaction" key={b.label}
                   style={{flex:"1 1 auto",padding:"30px",border:"1px solid var(--bd)",borderRadius:8,background:"var(--sf)",color:"var(--tx)",fontSize:18,cursor:"pointer",fontFamily:"inherit",alignItems:"center",justifyContent:"center",gap:4,boxShadow:"var(--sh)"}}
                   onClick={b.action}>
                   <i className={b.icon} style={{display:"block",fontSize:30,marginBottom:8,color:"var(--ac)"}}/>

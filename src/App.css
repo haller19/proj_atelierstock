@@ -58,8 +58,9 @@
   --sh:var(--md-e1);
 }
 
+html,body,#root{width:100%;min-width:0;overflow-x:hidden;}
 body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:var(--md-osf);min-height:100vh;}
-.app{padding:0 0 80px;}
+.app{width:100%;min-width:0;padding:0 0 80px;}
 
 /* ─── TOP APP BAR ─── */
 .header{
@@ -148,7 +149,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 .nb.on .ni{background:var(--md-pc);}
 
 /* ─── SECTION ─── */
-.sec{padding:16px 14px;width:1100px;margin:0 auto;}
+.sec{padding:16px 14px;width:100%;max-width:1100px;min-width:0;margin:0 auto;}
 .sec-title{font-family:'DM Serif Display',serif;font-size:22px;margin-bottom:14px;letter-spacing:.2px;}
 .sec-sub{font-size:12px;color:var(--md-osv);margin-bottom:10px;margin-top:-8px;}
 
@@ -491,7 +492,7 @@ body{font-family:'Zen Kaku Gothic New',sans-serif;background:var(--md-bg);color:
 .pt-vbtn:hover:not(.on){background:var(--md-sc2);}
 
 .pt{
-  width:100%;border-collapse:collapse;font-size:12px;
+  width:100%;min-width:860px;border-collapse:collapse;font-size:12px;
   background:var(--md-sc0);border:1px solid var(--md-olv);
   border-radius:var(--r-lg);overflow:hidden;
 }
