@@ -1325,16 +1325,19 @@ export default function App() {
   };
 
   const [editingSaleId, setEditingSaleId] = useState(null);
+  const [saleError, setSaleError] = useState("");
 
   const closeSaleModal = ()=>{
     setModal(null);
     setEditingSaleId(null);
+    setSaleError("");
     setShowNewChannel(false);
     setNewChannelInput({name:"",feeRate:""});
     setSf({ date:today(), channel:channels[0]?.name||"Minne", memo:"", items:[{...SF_ITEM_INIT}] });
   };
 
   const openEditSale = (s)=>{
+    setSaleError("");
     const orderParts = s.saleType==="order"
       ? partUsages.filter(u=>u.saleId===s.id&&u.type==="order").map(u=>({partId:String(u.partId),qty:String(u.qty)}))
       : [];
@@ -1352,16 +1355,41 @@ export default function App() {
     setModal("sale");
   };
 
+  useEffect(()=>{
+    if(modal!=="sale") setSaleError("");
+  },[modal]);
+
   const addSale = ()=>{
-    if(!sf.date) return;
-    const validItems = sf.items.filter(item=>
-      item.price&&item.qty&&(item.saleType==="order"?item.orderName:item.productId)
-    );
+    if(!sf.date) {
+      setSaleError("販売日を入力してください");
+      return;
+    }
+    if(!sf.channel) {
+      setSaleError("チャネルを選択してください");
+      return;
+    }
+    const itemError = sf.items.map((item, idx)=>{
+      const label = sf.items.length > 1 ? `${idx+1}件目` : "商品";
+      if(item.saleType==="order") {
+        if(!item.orderName?.trim()) return `${label}のオーダー品名を入力してください`;
+      } else if(!item.productId) {
+        return `${label}の作品を選択してください`;
+      }
+      if(!(Number(item.price) > 0)) return `${label}の販売価格を入力してください`;
+      if(!(Number(item.qty) > 0)) return `${label}の数量を入力してください`;
+      return "";
+    }).find(Boolean);
+    if(itemError) {
+      setSaleError(itemError);
+      return;
+    }
+    setSaleError("");
+    const validItems = sf.items;
     const buildSaleRecord = (item, id) => {
       const record = {
         saleType: item.saleType==="order"?"order":undefined,
         productId: item.saleType!=="order"?+item.productId:undefined,
-        orderName: item.saleType==="order"?item.orderName:undefined,
+        orderName: item.saleType==="order"?item.orderName.trim():undefined,
         date:sf.date, channel:sf.channel, qty:+item.qty, price:+item.price, purchaseCost:item.saleType==="order"?+item.purchaseCost||0:undefined, shippingActual:+item.shippingActual||0, memo:sf.memo,
       };
       return id == null ? record : { id, ...record };
@@ -3255,7 +3283,10 @@ export default function App() {
               {sf.items.map((item, idx)=>{
                 const isConsignEdit = editingSaleId && sales.find(s=>s.id===editingSaleId)?.consignRecordId;
                 const prev = salePreview[idx];
-                const updItem = (patch) => setSf(f=>({ ...f, items: f.items.map((it,i)=>i===idx?{...it,...patch}:it) }));
+                const updItem = (patch) => {
+                  if(saleError) setSaleError("");
+                  setSf(f=>({ ...f, items: f.items.map((it,i)=>i===idx?{...it,...patch}:it) }));
+                };
                 return (
                   <div key={idx} style={{border:"1px solid var(--md-olv)",borderRadius:12,padding:"10px 12px",marginBottom:8,background:"var(--md-sc1)"}}>
                     {/* 種別トグル（新規・非委託のみ） */}
@@ -3360,6 +3391,11 @@ export default function App() {
               )}
 
               <div className="fr"><label className="fl">メモ（注文番号・領収書番号など）</label><input className="fi" placeholder="例: MN-20250412" value={sf.memo} onChange={e=>setSf(f=>({...f,memo:e.target.value}))}/></div>
+              {saleError && (
+                <div style={{background:"var(--md-ec)",border:"1px solid var(--md-e)",borderRadius:8,color:"var(--md-oec)",fontSize:12,fontWeight:700,lineHeight:1.5,marginTop:8,padding:"8px 10px"}}>
+                  <i className="fal fa-exclamation-circle" style={{marginRight:5}}/>{saleError}
+                </div>
+              )}
               <div className="div"/>
               <button className="btn-p" onClick={addSale}>{editingSaleId ? "保存する" : "記録する"}</button>
               <button className="btn-c" onClick={closeSaleModal}>キャンセル</button>
