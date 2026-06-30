@@ -95,18 +95,18 @@ const INIT_SALES = [
   { id:8, productId:3, date:"2025-04-08", channel:"BASE",   qty:1, price:4500, shippingActual:310, memo:"" },
 ];
 
-const PART_CATS = ["すべて","金具","チェーン","ビーズ","梱包材"];
-const INIT_CHANNELS  = ["Minne","Creema","BASE","実店舗"];
-const CH_FEE    = { Minne:10, Creema:10, BASE:6.6, 実店舗:0 };
-const CH_COL    = { Minne:"#e8847a", Creema:"#7ab5e8", BASE:"#8ae8a8", 実店舗:"#e8c87a" };
-const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
-const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
-const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss:"var(--low)", sale:"var(--ok)" };
-
 const CH_PALETTE = ["#e8847a","#7ab5e8","#8ae8a8","#e8c87a","#b87ae8","#7ae8d8","#e87ab5","#a8e87a"];
+const INIT_CHANNELS = [
+  { id:1, name:"Minne",  feeRate:10,  color:"#e8847a" },
+  { id:2, name:"Creema", feeRate:10,  color:"#7ab5e8" },
+  { id:3, name:"BASE",   feeRate:6.6, color:"#8ae8a8" },
+  { id:4, name:"実店舗", feeRate:0,   color:"#e8c87a" },
+];
 const MIN_STOCK = {1:50,2:50,3:100,4:30,5:5,6:10,7:80,8:20,9:100,10:50};
 const TABLE_EDIT_COLS = ["cat","name","variant","unit","hinban","minStock","location"];
 const CONSIGN_TYPE_LABEL = { deliver:"納品", return:"返品", loss:"廃棄ロス", sale:"委託売上" };
+const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss:"var(--low)", sale:"var(--ok)" };
+const INIT_PROCESSINGS = [];
 const INIT_GLOBAL_SETTINGS = { avgPriceTax: "excl", theme: "terracotta" };
 
 const THEMES = {
@@ -152,7 +152,31 @@ const parseFraction = (str) => {
   if(s.endsWith("%")) return parseFloat(s)/100;
   return parseFloat(s);
 };
-const CONSIGN_TYPE_COL   = { deliver:"var(--accent)", return:"var(--warn)", loss:"var(--low)", sale:"var(--ok)" };
+const normalizeChannels = (value) => {
+  const defaults = Object.fromEntries(INIT_CHANNELS.map(c => [c.name, c]));
+  const src = Array.isArray(value) ? value : INIT_CHANNELS;
+  const seen = new Set();
+  const normalized = [];
+
+  src.forEach((ch, idx) => {
+    const oldName = typeof ch === "string" ? ch : "";
+    const name = oldName || (ch && typeof ch === "object" ? String(ch.name || "").trim() : "");
+    if (!name || seen.has(name)) return;
+    seen.add(name);
+
+    const def = defaults[name] || {};
+    const rawFeeRate = typeof ch === "object" && ch !== null ? ch.feeRate : def.feeRate;
+    const feeRate = Number(rawFeeRate ?? 0);
+    normalized.push({
+      id: typeof ch === "object" && ch !== null && ch.id != null ? ch.id : (def.id ?? idx + 1),
+      name,
+      feeRate: Number.isFinite(feeRate) ? feeRate : 0,
+      color: (typeof ch === "object" && ch !== null ? ch.color : "") || def.color || CH_PALETTE[idx % CH_PALETTE.length],
+    });
+  });
+
+  return normalized.length ? normalized : INIT_CHANNELS;
+};
 
 // ─── CSV / JSON データ管理ヘルパー ────────────────────────────────
 const CSV_COLS = {
@@ -463,17 +487,26 @@ function calcSaleProfit(sale, productCostMap, chFeeMap={}, partsCost=0) {
 // ═══════════════════════════════════════════════════════════════
 //  LocalStorage フック
 // ═══════════════════════════════════════════════════════════════
-function useLS(key, init) {
+function useLS(key, init, normalize) {
+  const normalizeValue = (value) => {
+    if (!normalize) return value;
+    try { return normalize(value); } catch { return init; }
+  };
   const [val, setVal] = useState(() => {
     try {
       const s = localStorage.getItem(key);
-      return s ? JSON.parse(s) : init;
+      return normalizeValue(s ? JSON.parse(s) : init);
     } catch { return init; }
   });
+  useEffect(() => {
+    if (!normalize) return;
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* localStorage may be unavailable */ }
+  }, [key, normalize, val]);
   const set = updater => {
     setVal(prev => {
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      try { localStorage.setItem(key, JSON.stringify(next)); } catch {}
+      const rawNext = typeof updater === "function" ? updater(prev) : updater;
+      const next = normalizeValue(rawNext);
+      try { localStorage.setItem(key, JSON.stringify(next)); } catch { /* localStorage may be unavailable */ }
       return next;
     });
   };
@@ -492,7 +525,7 @@ export default function App() {
   const [consignees,     setConsignees]     = useLS("as_consignees",      INIT_CONSIGNEES);
   const [consignRecords, setConsignRecords] = useLS("as_consign_records", INIT_CONSIGN_RECORDS);
   const [sales,          setSales]          = useLS("as_sales",           INIT_SALES);
-  const [channels,       setChannels]       = useLS("as_channels",        INIT_CHANNELS);
+  const [channels,       setChannels]       = useLS("as_channels",        INIT_CHANNELS, normalizeChannels);
   const [partUsages,     setPartUsages]     = useLS("as_part_usages",     []);
   const [processings,    setProcessings]    = useLS("as_processings",     INIT_PROCESSINGS);
   const [partCatMaster,  setPartCatMaster]  = useLS("as_part_cats",       ["金具","チェーン","ビーズ","梱包材"]);
